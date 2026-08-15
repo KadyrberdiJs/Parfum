@@ -1,0 +1,23 @@
+enum Status {
+  PENDING
+  APPROVED
+  SUSPENDED
+}
+
+model Shop {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  description String?
+  logoUrl     String?  @map("logo_url")
+  bannerUrl   String?  @map("banner_url")
+  email       String
+  address     String?
+  status      Status   @default(PENDING)
+  ownerId     Int      @unique @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("shops")
+}

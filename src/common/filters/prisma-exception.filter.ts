@@ -8,13 +8,17 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         const res = host.switchToHttp().getResponse<Response>();
 
         switch (exception.code) {
-            case 'P2002':
-                const fields = (exception.meta?.target as string[])?.join(',');             
+            case 'P2002': {
+                const meta = exception.meta as any;
+                const fields: string[] | undefined =
+                    meta?.driverAdapterError?.cause?.constraint?.fields ?? meta?.target;
+
                 return res.status(HttpStatus.CONFLICT).json({
                     statusCode: 409,
-                    message: `Unique constraint failed on: ${fields}`,
+                    message: `Unique constraint failed on: ${fields?.join(', ') ?? 'a unique field'}`,
                     error: "Conflict",
                 });
+            }
             case 'P2025':
                 return res.status(HttpStatus.NOT_FOUND).json({
                     statusCode: 404,

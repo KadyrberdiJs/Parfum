@@ -24,11 +24,11 @@ export class LoggerMiddleware implements NestMiddleware {
             }
 
             if (res.statusCode >= 500) {
-                this.logger.error(message);   // red
+                this.logger.error(message);
             } else if (res.statusCode >= 400) {
-                this.logger.warn(message);    // yellow
+                this.logger.warn(message);
             } else {
-                this.logger.log(message);     // green
+                this.logger.log(message);
             }
         });
 

@@ -1,23 +1,26 @@
 enum UserRole {
-  super_admin
-  admin
-  cashier
-  courier
-  customer
+  SUPER_ADMIN
+  ADMIN
+  CASHIER
+  COURIER
+  CUSTOMER
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String?  @unique
-  username  String   @unique
-  password  String
-  fullName  String   @map("full_name")
+  id       Int     @id @default(autoincrement())
+  email    String? @unique
+  username String  @unique
+  password String
+  fullName String  @map("full_name")
 
-  role      UserRole @default(customer)
+  role UserRole @default(CUSTOMER)
 
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  // FK
+  shop Shop?
 
   @@map("users")
 }
