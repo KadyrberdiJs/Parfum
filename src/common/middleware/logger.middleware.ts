@@ -4,6 +4,10 @@ import { Request, Response, NextFunction } from 'express';
 const IS_DEV = process.env.NODE_ENV !== 'production';
 const HIDDEN_FIELDS = ['password', 'token', 'refreshToken'];
 
+const BLUE = '\x1b[94m';
+const ORANGE = '\x1b[38;5;208m';
+const RESET = '\x1b[0m';
+
 @Injectable()
 export class LoggerMiddleware implements NestMiddleware {
     private readonly logger = new Logger('HTTP');
@@ -15,9 +19,9 @@ export class LoggerMiddleware implements NestMiddleware {
             const ms = Date.now() - start;
             let message = `${req.method} ${req.originalUrl} ${res.statusCode} +${ms}ms`;
 
-              if (IS_DEV && req.body && Object.keys(req.body).length > 0) {
-                  message += ` body=${JSON.stringify(this.hideSecrets(req.body), null, 2)}`;
-              }
+            if (IS_DEV && req.body && Object.keys(req.body).length > 0) {
+                message += `\n${this.colorizeJson(this.hideSecrets(req.body))}`;
+            }
 
             if (res.statusCode >= 500) {
                 this.logger.error(message);   // red
@@ -29,6 +33,15 @@ export class LoggerMiddleware implements NestMiddleware {
         });
 
         next();
+    }
+
+    private colorizeJson(obj: Record<string, any>): string {
+        const json = JSON.stringify(obj, null, 2);
+        return json.replace(
+            /"([^"]+)": ("[^"]*"|[\d.-]+|true|false|null)/g,
+            (_match, key, value) =>
+                `${BLUE}"${key}"${RESET}: ${ORANGE}${value}${RESET}`,
+        );
     }
 
     private hideSecrets(body: Record<string, any>) {
