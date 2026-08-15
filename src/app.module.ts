@@ -5,11 +5,13 @@ import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { ShopModule } from './modules/shop/shop.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true}),
     UsersModule,
-    PrismaModule
+    PrismaModule,
+    ShopModule
   ],
   controllers: [AppController],
   providers: [AppService],

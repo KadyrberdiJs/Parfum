@@ -53,27 +53,36 @@ export class UsersService {
    };
 
    async update(id: number, dto: UpdateUserDto) {
-        await this.findOne(id);
-
         const data: Prisma.UserUpdateInput = { ...dto };
 
         if (dto.password) {
             data.password = await bcrypt.hash(dto.password, 10);
         }
-
-        return await this.prisma.user.update({
-            where: { id },
-            data: data,
-            select: USER_PUBLIC_FIELDS
-        })
-   };
+        try {
+            return await this.prisma.user.update({
+                where: { id },
+                data: data,
+                select: USER_PUBLIC_FIELDS
+            })
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+            throw new NotFoundException(`User with id:${id} not found!`);
+        }
+        throw e;
+        };
+    }
 
    async remove(id: number) {
-        await this.findOne(id);
-
-        return await this.prisma.user.delete({
-            where: { id: id },
-            select: USER_PUBLIC_FIELDS,
-        })
+        try {
+            return await this.prisma.user.delete({
+                where: { id: id },
+                select: USER_PUBLIC_FIELDS,
+            })
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+            throw new NotFoundException(`User with id:${id} not found!`);
+        }
+        throw e;
+        }
    };
 }
