@@ -2,7 +2,6 @@ import { ConflictException, Injectable, InternalServerErrorException, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import bcrypt from 'bcryptjs';
-import { NotFoundError } from 'rxjs';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Prisma } from 'generated/prisma/client';
 
@@ -33,15 +32,15 @@ export class UsersService {
         })
    };
 
-   async findALl() {
-        return this.prisma.user.findMany({
+   async findAll() {
+        return await this.prisma.user.findMany({
             select: USER_PUBLIC_FIELDS,
             orderBy: { createdAt: 'desc'},
         })
    };
 
    async findOne(id: number) {
-        const user = this.prisma.user.findUnique({
+        const user = await this.prisma.user.findUnique({
             where: {id: id},
             select: USER_PUBLIC_FIELDS,
         });
@@ -62,7 +61,7 @@ export class UsersService {
             data.password = await bcrypt.hash(dto.password, 10);
         }
 
-        return this.prisma.user.update({
+        return await this.prisma.user.update({
             where: { id },
             data: data,
             select: USER_PUBLIC_FIELDS
@@ -72,8 +71,9 @@ export class UsersService {
    async remove(id: number) {
         await this.findOne(id);
 
-        return this.prisma.user.delete({
+        return await this.prisma.user.delete({
             where: { id: id },
+            select: USER_PUBLIC_FIELDS,
         })
    };
 }
