@@ -1,7 +1,9 @@
-import { ConflictException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { ConflictException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import bcrypt from 'bcryptjs';
+import { NotFoundError } from 'rxjs';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { Prisma } from 'generated/prisma/client';
 
 
@@ -19,25 +21,59 @@ const USER_PUBLIC_FIELDS = {
 @Injectable()
 export class UsersService {
     constructor(private prisma: PrismaService) {}
-
-   async create(dto: CreateUserDto) {
+    
+    async create(dto: CreateUserDto) {
         const {password, ...rest} = dto;
 
         const hashed = await bcrypt.hash(dto.password, 10);
 
-        try {
-            return await this.prisma.user.create({
-                data: {
-                    ...rest,
-                    password: hashed
-                },
-                select: USER_PUBLIC_FIELDS
-            })
-        } catch (error) {
-            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-            throw new ConflictException('Email or Username is already taken.');
-            }
-            throw new InternalServerErrorException('Failed to create user.');
+        return await this.prisma.user.create({
+            data: { ...rest, password: hashed },
+            select: USER_PUBLIC_FIELDS,
+        })
+   };
+
+   async findALl() {
+        return this.prisma.user.findMany({
+            select: USER_PUBLIC_FIELDS,
+            orderBy: { createdAt: 'desc'},
+        })
+   };
+
+   async findOne(id: number) {
+        const user = this.prisma.user.findUnique({
+            where: {id: id},
+            select: USER_PUBLIC_FIELDS,
+        });
+
+        if (!user) {
+            throw new NotFoundException(`User with id:${id} not found!`);
+        };
+
+        return user;
+   };
+
+   async update(id: number, dto: UpdateUserDto) {
+        await this.findOne(id);
+
+        const data: Prisma.UserUpdateInput = { ...dto };
+
+        if (dto.password) {
+            data.password = await bcrypt.hash(dto.password, 10);
         }
-   }
+
+        return this.prisma.user.update({
+            where: { id },
+            data: data,
+            select: USER_PUBLIC_FIELDS
+        })
+   };
+
+   async remove(id: number) {
+        await this.findOne(id);
+
+        return this.prisma.user.delete({
+            where: { id: id },
+        })
+   };
 }
