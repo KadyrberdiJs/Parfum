@@ -6,12 +6,14 @@ import { PrismaModule } from './modules/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { ShopModule } from './modules/shop/shop.module';
+import { CategoryModule } from './modules/category/category.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true}),
     UsersModule,
     PrismaModule,
-    ShopModule
+    ShopModule,
+    CategoryModule
   ],
   controllers: [AppController],
   providers: [AppService],
