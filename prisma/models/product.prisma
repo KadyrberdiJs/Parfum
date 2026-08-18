@@ -1,0 +1,33 @@
+model Product {
+  id          Int              @id @default(autoincrement())
+  name        String
+  slug        String           @unique
+  description String?
+  brand       String?
+  imageUrl    String?          @map("image_url")
+  isActive    Boolean          @default(true) @map("is_active")
+  categoryId  Int              @map("category_id")
+  category    Category         @relation(fields: [categoryId], references: [id])
+  shopId      Int              @map("shop_id")
+  shop        Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  variants    ProductVariant[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id        Int      @id @default(autoincrement())
+  ml        Int
+  price     Decimal  @db.Decimal(10, 2)
+  stock     Int      @default(0)
+  sku       String?  @unique
+  productId Int      @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([productId, ml])
+  @@map("product_variants")
+}
