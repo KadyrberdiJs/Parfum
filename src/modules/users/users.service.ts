@@ -85,4 +85,11 @@ export class UsersService {
         throw e;
         }
    };
+
+   // For login 
+   async findByUserName(username: string) {
+        return this.prisma.user.findUnique({
+            where: { username: username}
+        });
+    };
 }

@@ -8,6 +8,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { ShopModule } from './modules/shop/shop.module';
 import { CategoryModule } from './modules/category/category.module';
 import { ProductModule } from './modules/product/product.module';
+import { AuthModule } from './modules/auth/auth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true}),
@@ -15,7 +16,8 @@ import { ProductModule } from './modules/product/product.module';
     PrismaModule,
     ShopModule,
     CategoryModule,
-    ProductModule
+    ProductModule,
+    AuthModule
   ],
   controllers: [AppController],
   providers: [AppService],
