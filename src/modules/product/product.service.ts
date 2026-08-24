@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto, VariantChangesDto } from './dto/update-product.dto';
 import { Prisma } from 'generated/prisma/client';
+import { ownedProductWhere } from 'src/common/auth/ownership';
+import { AuthUser } from 'src/common/decorators/current-user.decorator';
 
 @Injectable()
 export class ProductService {
@@ -52,7 +54,7 @@ export class ProductService {
         return product;
     };
 
-    async update(id: number, dto: UpdateProductDto) {
+    async update(id: number, dto: UpdateProductDto, user: AuthUser) {
         const { variants, ...productData } = dto;
 
         const data: Prisma.ProductUncheckedUpdateInput = { ...productData };
@@ -63,7 +65,7 @@ export class ProductService {
 
         try {
             return await this.prisma.product.update({
-                where: { id: id },
+                where: { id: id, ...ownedProductWhere(user) },
                 data: data,
                 include: { variants: true },
             });
