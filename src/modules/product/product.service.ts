@@ -65,7 +65,7 @@ export class ProductService {
 
         try {
             return await this.prisma.product.update({
-                where: { id: id, ...ownedProductWhere(user) },
+                where: { id, AND: [ownedProductWhere(user)]},
                 data: data,
                 include: { variants: true },
             });
@@ -83,10 +83,10 @@ export class ProductService {
         };
     };
 
-    async remove(id: number) {
+    async remove(id: number, user: AuthUser) {
         try {
             return await this.prisma.product.delete({
-                where: { id: id },
+                where: { id, AND: [ownedProductWhere(user)] },
             });
         } catch (e) {
             if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {

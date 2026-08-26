@@ -1,7 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { type AuthUser, CurrentUser } from 'src/common/decorators/current-user.decorator';
 
 @Controller('products')
 export class ProductController {
@@ -23,14 +25,20 @@ export class ProductController {
     };
 
     @Patch(':id')
+    @UseGuards(JwtAuthGuard)
     update(
         @Param('id', ParseIntPipe) id: number,
-        @Body() dto: UpdateProductDto) {
-            return this.productService.update(id, dto);
+        @Body() dto: UpdateProductDto,
+        @CurrentUser() user: AuthUser,
+    ) {
+            return this.productService.update(id, dto, user);
     };
 
     @Delete(':id')
-    delete(@Param('id', ParseIntPipe) id: number) {
-        return this.productService.remove(id);
+    delete(
+        @Param('id', ParseIntPipe) id: number,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.productService.remove(id, user);
     };
 }
