@@ -1,18 +1,20 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { ProductController } from './product.controller';
-
+import { ProductService } from './product.service';
 describe('ProductController', () => {
-  let controller: ProductController;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [ProductController],
-    }).compile();
-
-    controller = module.get<ProductController>(ProductController);
-  });
-
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('passes the authenticated user to creation', async () => {
+    const create = jest.fn();
+    const controller = new ProductController({
+      create,
+    } as unknown as ProductService);
+    const dto = {
+      name: 'Perfume',
+      slug: 'perfume',
+      shopId: 2,
+      categoryId: 1,
+      variants: [{ ml: 50, price: 20 }],
+    };
+    const user = { id: 1, username: 'seller', role: 'ADMIN' as const };
+    await controller.create(dto, user);
+    expect(create).toHaveBeenCalledWith(dto, user);
   });
 });

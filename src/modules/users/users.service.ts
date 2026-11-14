@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { PaginationDto } from '../../common/pagination.dto';
 import bcrypt from 'bcryptjs';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { Prisma } from 'generated/prisma/client';
-
+import { Prisma } from '../../../generated/prisma/client';
 
 const USER_PUBLIC_FIELDS = {
   id: true,
@@ -19,77 +24,107 @@ const USER_PUBLIC_FIELDS = {
 
 @Injectable()
 export class UsersService {
-    constructor(private prisma: PrismaService) {}
-    
-    async create(dto: CreateUserDto) {
-        const {password, ...rest} = dto;
+  constructor(private prisma: PrismaService) {}
 
-        const hashed = await bcrypt.hash(dto.password, 10);
+  async create(dto: CreateUserDto) {
+    const { password, ...rest } = dto;
 
-        return await this.prisma.user.create({
-            data: { ...rest, password: hashed },
-            select: USER_PUBLIC_FIELDS,
-        })
-   };
+    const hashed = await bcrypt.hash(password, 10);
 
-   async findAll() {
-        return await this.prisma.user.findMany({
-            select: USER_PUBLIC_FIELDS,
-            orderBy: { createdAt: 'desc'},
-        })
-   };
+    return await this.prisma.user.create({
+      data: { ...rest, password: hashed },
+      select: USER_PUBLIC_FIELDS,
+    });
+  }
 
-   async findOne(id: number) {
-        const user = await this.prisma.user.findUnique({
-            where: {id: id},
-            select: USER_PUBLIC_FIELDS,
-        });
+  async findAll(query: PaginationDto = new PaginationDto()) {
+    return await this.prisma.user.findMany({
+      select: USER_PUBLIC_FIELDS,
+      skip: query.skip,
+      take: query.limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+  }
 
-        if (!user) {
-            throw new NotFoundException(`User with id:${id} not found!`);
-        };
+  async findOne(id: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: id },
+      select: USER_PUBLIC_FIELDS,
+    });
 
-        return user;
-   };
-
-   async update(id: number, dto: UpdateUserDto) {
-        const data: Prisma.UserUpdateInput = { ...dto };
-
-        if (dto.password) {
-            data.password = await bcrypt.hash(dto.password, 10);
-        }
-        try {
-            return await this.prisma.user.update({
-                where: { id },
-                data: data,
-                select: USER_PUBLIC_FIELDS
-            })
-        } catch (e) {
-            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-            throw new NotFoundException(`User with id:${id} not found!`);
-        }
-        throw e;
-        };
+    if (!user) {
+      throw new NotFoundException(`User with id:${id} not found!`);
     }
 
-   async remove(id: number) {
-        try {
-            return await this.prisma.user.delete({
-                where: { id: id },
-                select: USER_PUBLIC_FIELDS,
-            })
-        } catch (e) {
-            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-            throw new NotFoundException(`User with id:${id} not found!`);
-        }
-        throw e;
-        }
-   };
+    return user;
+  }
 
-   // For login 
-   async findByUserName(username: string) {
-        return this.prisma.user.findUnique({
-            where: { username: username}
+  async update(id: number, dto: UpdateUserDto) {
+    const data: Prisma.UserUpdateInput = { ...dto };
+
+    try {
+      return await this.prisma.user.update({
+        where: { id },
+        data: data,
+        select: USER_PUBLIC_FIELDS,
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2025'
+      ) {
+        throw new NotFoundException(`User with id:${id} not found!`);
+      }
+      throw e;
+    }
+  }
+
+  async remove(id: number) {
+    try {
+      return await this.prisma.user.delete({
+        where: { id: id },
+        select: USER_PUBLIC_FIELDS,
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2025'
+      ) {
+        throw new NotFoundException(`User with id:${id} not found!`);
+      }
+      throw e;
+    }
+  }
+
+  async changePassword(id: number, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (
+      !user ||
+      !user.isActive ||
+      !(await bcrypt.compare(dto.currentPassword, user.password))
+    ) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    const password = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.$transaction(
+      async (tx) => {
+        const changed = await tx.user.updateMany({
+          where: { id, password: user.password, isActive: true },
+          data: { password },
         });
-    };
+        if (changed.count !== 1)
+          throw new UnauthorizedException('Credentials changed; try again');
+        await tx.refreshToken.deleteMany({ where: { userId: id } });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return { message: 'Password changed; refresh sessions revoked' };
+  }
+
+  // For login
+  async findByUserName(username: string) {
+    return this.prisma.user.findUnique({
+      where: { username: username },
+    });
+  }
 }

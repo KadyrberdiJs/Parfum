@@ -1,36 +1,26 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus } from "@nestjs/common";
-import { Response } from "express";
-import { Prisma } from "generated/prisma/client";
-
+import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
+import type { Response } from 'express';
+import { Prisma } from '../../../generated/prisma/client';
 @Catch(Prisma.PrismaClientKnownRequestError)
 export class PrismaExceptionFilter implements ExceptionFilter {
-    catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
-        const res = host.switchToHttp().getResponse<Response>();
-
-        switch (exception.code) {
-            case 'P2002': {
-                const meta = exception.meta as any;
-                const fields: string[] | undefined =
-                    meta?.driverAdapterError?.cause?.constraint?.fields ?? meta?.target;
-
-                return res.status(HttpStatus.CONFLICT).json({
-                    statusCode: 409,
-                    message: `Unique constraint failed on: ${fields?.join(', ') ?? 'a unique field'}`,
-                    error: "Conflict",
-                });
-            }
-            case 'P2025':
-                return res.status(HttpStatus.NOT_FOUND).json({
-                    statusCode: 404,
-                    message: 'Record not found',
-                    error: 'Not Found',
-                });
-            default:
-                return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-                    statusCode: 500,
-                    message: 'Internal server error',
-                    error: 'Internal server error'
-                });
-        }
-    }
+  private readonly logger = new Logger(PrismaExceptionFilter.name);
+  catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
+    const errors: Record<string, [number, string]> = {
+      P2002: [409, 'A record with these unique values already exists'],
+      P2025: [404, 'Record not found'],
+      P2003: [409, 'Related record missing or still in use'],
+      P2034: [409, 'Concurrent change detected; retry the request'],
+    };
+    const [statusCode, message] = errors[exception.code] ?? [
+      500,
+      'Internal server error',
+    ];
+    if (statusCode === 500)
+      this.logger.error(`Database error: ${exception.code}`);
+    return host
+      .switchToHttp()
+      .getResponse<Response>()
+      .status(statusCode)
+      .json({ statusCode, message });
+  }
 }

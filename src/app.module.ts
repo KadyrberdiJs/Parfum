@@ -1,3 +1,7 @@
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { validateEnvironment } from './common/config';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,20 +15,23 @@ import { ProductModule } from './modules/product/product.module';
 import { AuthModule } from './modules/auth/auth.module';
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true}),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     UsersModule,
     PrismaModule,
     ShopModule,
     CategoryModule,
     ProductModule,
-    AuthModule
+    AuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
-
 export class AppModule implements NestModule {
-    configure(consumer: MiddlewareConsumer) {
-        consumer.apply(LoggerMiddleware).forRoutes('{*splat}');
-    }
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes('{*splat}');
+  }
 }

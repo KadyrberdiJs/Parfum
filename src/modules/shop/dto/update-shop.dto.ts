@@ -1,6 +1,5 @@
-import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/mapped-types';
 import { CreateShopDto } from './create-shop.dto';
-
-export class UpdateShopDto extends PartialType(
-    OmitType(CreateShopDto, ['ownerId'] as const),
-) {}
+export class UpdateShopDto extends PartialType(CreateShopDto, {
+  skipNullProperties: false,
+}) {}

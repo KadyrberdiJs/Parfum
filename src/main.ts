@@ -1,12 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
-
+import { setupApp } from './setup-app';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.useGlobalFilters(new PrismaExceptionFilter)
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  setupApp(app);
   await app.listen(process.env.PORT ?? 4001);
 }
-bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

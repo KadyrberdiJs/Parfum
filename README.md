@@ -1,98 +1,90 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Perfume API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS + Prisma + PostgreSQL catalog with users, shops, categories, product variants and JWT sessions.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Run locally
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ yarn install
+```sh
+yarn install --frozen-lockfile
+cp .env.example .env
+# Edit DATABASE_URL and generate a random JWT_SECRET:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Set JWT_SECRET to the generated value.
+yarn prisma:generate
+yarn prisma migrate deploy
+yarn start:dev
 ```
 
-## Compile and run the project
+The API defaults to http://localhost:4001. Use a disposable database for testing. Existing migrations are unchanged; no database migration is required for these application fixes.
 
-```bash
-# development
-$ yarn run start
+Generated Prisma code is ignored by Git, so run `yarn prisma:generate` after installing or changing the schema. Production: `yarn build` then `yarn start:prod`. Compiled entrypoint: `dist/src/main.js`.
 
-# watch mode
-$ yarn run start:dev
+## Permissions
 
-# production mode
-$ yarn run start:prod
+Authentication is required by default. Only explicitly `@Public()` routes skip access-token authentication. Refresh/logout still enforce their separate refresh-token guard.
+
+| Endpoint                                    | Access                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `POST /users`, `POST /auth/login`           | Public                                                                       |
+| `GET /products`, `/products/:id`            | Public; active products in approved shops                                    |
+| `GET /shops`, `/shops/:id`                  | Public; approved shops                                                       |
+| `GET /categories`, `/categories/:id`        | Public                                                                       |
+| `GET/PATCH /users/me`                       | Current authenticated user                                                   |
+| `PATCH /users/me/password`                  | Current user, with current password                                          |
+| `GET /users`, `GET/PATCH/DELETE /users/:id` | Super administrator                                                          |
+| Shop/product creation, update and deletion  | `ADMIN` or `SUPER_ADMIN`; owner checks apply except for super administrators |
+| `GET /shops/manage`, `GET /products/manage` | Own records including pending/drafts; super administrators see all           |
+| `PATCH /shops/:id/status`                   | Super administrator; `PENDING`, `APPROVED`, or `SUSPENDED`                   |
+| Category creation, update and deletion      | Super administrator                                                          |
+
+New accounts default to `CUSTOMER`. For initial local setup, register your account, then use `yarn prisma studio` to assign its role to `SUPER_ADMIN`. An operator must provision seller roles (`ADMIN`) through trusted database tooling; public requests cannot set roles. Keep role provisioning out of public registration.
+
+Shop creation derives `ownerId` from authentication: do not send it. A new shop is pending until approved. Ordinary product updates cannot change `shopId`.
+
+## Tokens and passwords
+
+Both token types use the same `JWT_SECRET`. Access tokens contain `type: "access"`; refresh tokens contain `type: "refresh"`. Each strategy rejects the wrong or missing type. Previously issued tokens without this claim are rejected: log in again after upgrading.
+
+Send an access token in `Authorization: Bearer <accessToken>` for protected routes. Access tokens last 15 minutes; current account activity and role are read on each authenticated request.
+
+For `POST /auth/refresh` and `POST /auth/logout`, send the **refresh token** in the same Bearer header. Refresh tokens last 30 days, are stored as SHA-256 hashes, and are consumed and replaced in one serializable transaction. Expired/used tokens return 401; simultaneous database conflicts return 409. Clients should serialize refresh calls instead of refreshing in parallel. A replay is rejected without revoking unrelated device sessions; token-family reuse detection is not implemented.
+
+`POST /auth/logout-all` uses an access token and revokes all refresh sessions for that user.
+
+Change a password using:
+
+```http
+PATCH /users/me/password
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{"currentPassword":"old-password","newPassword":"new-password"}
 ```
 
-## Run tests
+The new hash and refresh-session revocation commit together. Existing access tokens may remain usable until their 15-minute expiry. Password updates are rejected on ordinary profile endpoints. New passwords require at least 8 characters and at most 72 UTF-8 bytes (bcrypt's input limit).
 
-```bash
-# unit tests
-$ yarn run test
+## Validation and business rules
 
-# e2e tests
-$ yarn run test:e2e
+- Unknown body/query properties return 400 instead of being silently ignored.
+- Lists accept `?page=1&limit=20`; maximum page size is 100. The response remains an array. Category lists paginate roots and include their immediate children, not an entire recursive tree.
+- Public product list/detail use the same visibility rules. Management lists include hidden records.
+- Products must retain at least one variant. Removing the last variant rolls the update back.
+- Category updates reject direct and indirect cycles. Category deletion still cascades through descendants; product references can prevent deletion.
+- Shop deletion still cascades through products and variants; it is now owner/admin protected.
+- Unique-value conflicts and related-record conflicts have controlled client responses. Transaction conflicts return 409 so clients can retry deliberately.
+- Login is limited to 10 attempts per minute per IP in one application process. Multiple replicas need a shared/edge limiter. Configure trusted proxies explicitly before relying on forwarded client IPs.
+- HTTP logging excludes request bodies, tokens and query strings.
 
-# test coverage
-$ yarn run test:cov
+## Checks
+
+```sh
+yarn typecheck
+yarn lint
+yarn test --runInBand
+yarn test:e2e --runInBand
+yarn build
 ```
 
-## Deployment
+Unit tests cover ownership, token rotation, password changes, category cycles, guards and DTO validation. HTTP tests boot the real app with real guards/strategies/pipes and a mocked database; they need permission to open a local port. Neither suite proves PostgreSQL transaction rollback or concurrency behavior: test those against a disposable PostgreSQL database before deployment.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+No microservices needed: controller receives a request, guards check identity/role, DTOs validate input, services enforce ownership/business rules, Prisma stores the result.

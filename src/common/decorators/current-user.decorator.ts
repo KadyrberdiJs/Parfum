@@ -1,9 +1,7 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-
-export type AuthUser = { id: number; username: string; role: string };
-
+import { UserRole } from '../../../generated/prisma/enums';
+export type AuthUser = { id: number; username: string; role: UserRole };
 export const CurrentUser = createParamDecorator(
-    (data: unknown, context: ExecutionContext): AuthUser => {
-        return context.switchToHttp().getRequest().user;
-    },
+  (_data: unknown, context: ExecutionContext): AuthUser =>
+    context.switchToHttp().getRequest<{ user: AuthUser }>().user,
 );
