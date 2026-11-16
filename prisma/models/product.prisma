@@ -4,7 +4,6 @@ model Product {
   slug           String           @unique
   description    String?
   brand          String?
-  imageUrl       String?          @map("image_url")
   isActive       Boolean          @default(true) @map("is_active")
   categoryId     Int              @map("category_id")
   category       Category         @relation(fields: [categoryId], references: [id])
@@ -12,6 +11,7 @@ model Product {
   shop           Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
   stockMl        Int              @default(0) @map("stock_ml")
   stockMovements StockMovement[]
+  images         ProductImage[]
   variants       ProductVariant[]
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")

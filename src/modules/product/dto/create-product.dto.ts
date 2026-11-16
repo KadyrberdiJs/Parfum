@@ -8,7 +8,6 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUrl,
   Matches,
   MaxLength,
   Min,
@@ -64,10 +63,6 @@ export class CreateProductDto {
   @IsString()
   @MaxLength(100)
   brand?: string;
-
-  @IsOptional()
-  @IsUrl()
-  imageUrl?: string;
 
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @IsBoolean()

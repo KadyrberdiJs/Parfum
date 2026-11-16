@@ -8,7 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { ProductImageService } from './product-image.service';
+import { MAX_IMAGES_PER_OWNER } from '../image/image-links';
+import { MAX_UPLOAD_SIZE_BYTES } from '../image/image.service';
 import { ProductStockService } from './product-stock.service';
 import { StockMovementDto } from './dto/stock-movement.dto';
 import { StockSaleDto } from './dto/stock-sale.dto';
@@ -28,7 +34,33 @@ export class ProductController {
   constructor(
     private readonly productService: ProductService,
     private readonly stockService: ProductStockService,
+    private readonly productImageService: ProductImageService,
   ) {}
+
+  @Post(':id/images')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @UseInterceptors(
+    FilesInterceptor('images', MAX_IMAGES_PER_OWNER, {
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
+    }),
+  )
+  addImages(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFiles() files: Express.Multer.File[] = [],
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productImageService.addImages(id, files, user);
+  }
+
+  @Delete(':id/images/:imageId')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  removeImage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productImageService.removeImage(id, imageId, user);
+  }
 
   @Post(':id/stock-movements')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)

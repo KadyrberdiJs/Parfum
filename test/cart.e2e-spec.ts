@@ -40,6 +40,7 @@ describe('Cart HTTP contracts', () => {
             isActive: true,
           }),
         },
+        imageFileDeletion: { findMany: jest.fn().mockResolvedValue([]) },
       })
       .overrideProvider(CartService)
       .useValue(carts)

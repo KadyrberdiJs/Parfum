@@ -1,0 +1,32 @@
+// Shared by every table that has pictures. Each owner links to it through its own join table (like ProductImage),
+// so a new owner only needs a new join table, never a change to Image.
+// Database triggers delete an image when its last link is removed and queue its file in ImageFileDeletion
+// (see the add_images migration); a new join table needs the same link trigger.
+model Image {
+  id           Int            @id @default(autoincrement())
+  url          String
+  storageKey   String?        @unique @map("storage_key")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  productLinks ProductImage[]
+
+  @@map("images")
+}
+
+model ProductImage {
+  productId Int     @map("product_id")
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  imageId   Int     @map("image_id")
+  image     Image   @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  position  Int     @default(0)
+
+  @@id([productId, imageId])
+  @@index([imageId])
+  @@map("product_images")
+}
+
+model ImageFileDeletion {
+  storageKey String   @id @map("storage_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("image_file_deletions")
+}

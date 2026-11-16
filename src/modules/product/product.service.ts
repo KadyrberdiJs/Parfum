@@ -11,10 +11,16 @@ import { PaginationDto } from '../../common/pagination.dto';
 import { Prisma } from '../../../generated/prisma/client';
 import { ownedProductWhere, ownedShopWhere } from '../../common/auth/ownership';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
+import { ImageLink, withImageList } from '../image/image-links';
+import { ImageService } from '../image/image.service';
+import { orderedImages } from './product-image.service';
 
 @Injectable()
 export class ProductService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private imageService: ImageService,
+  ) {}
 
   async create(dto: CreateProductDto, user: AuthUser) {
     const { variants, stockMl = 0, ...productData } = dto;
@@ -25,7 +31,7 @@ export class ProductService {
     if (!shop) throw new ForbiddenException('You do not own this shop');
 
     try {
-      return await this.prisma.product.create({
+      const product = await this.prisma.product.create({
         data: {
           ...productData,
           stockMl,
@@ -45,8 +51,9 @@ export class ProductService {
             create: variants,
           },
         },
-        include: { variants: true },
+        include: { variants: true, images: orderedImages },
       });
+      return withImageList(product);
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -71,33 +78,38 @@ export class ProductService {
       where: { isActive: true, shop: { status: 'APPROVED' } },
       skip: query.skip,
       take: query.limit,
-      include: { variants: true, category: true },
+      include: { variants: true, category: true, images: orderedImages },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
-    return products.map((product) => this.withAvailability(product));
+    return products.map((product) => this.present(product));
   }
 
   async findManaged(user: AuthUser, query: PaginationDto) {
     const products = await this.prisma.product.findMany({
-      include: { variants: true },
+      include: { variants: true, images: orderedImages },
       where: ownedProductWhere(user),
       skip: query.skip,
       take: query.limit,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
-    return products.map((product) => this.withAvailability(product));
+    return products.map((product) => this.present(product));
   }
 
   async findOne(id: number) {
     const product = await this.prisma.product.findUnique({
       where: { id, isActive: true, shop: { status: 'APPROVED' } },
-      include: { variants: true, category: true, shop: true },
+      include: {
+        variants: true,
+        category: true,
+        shop: true,
+        images: orderedImages,
+      },
     });
 
     if (!product) {
       throw new NotFoundException(`Product with id:${id} not found!`);
     }
-    return this.withAvailability(product);
+    return this.present(product);
   }
 
   async update(id: number, dto: UpdateProductDto, user: AuthUser) {
@@ -115,13 +127,13 @@ export class ProductService {
           const product = await tx.product.update({
             where: { id, AND: [ownedProductWhere(user)] },
             data: data,
-            include: { variants: true },
+            include: { variants: true, images: orderedImages },
           });
           if (product.variants.length === 0)
             throw new BadRequestException(
               'A product must have at least one variant',
             );
-          return product;
+          return withImageList(product);
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -152,9 +164,11 @@ export class ProductService {
 
   async remove(id: number, user: AuthUser) {
     try {
-      return await this.prisma.product.delete({
+      const product = await this.prisma.product.delete({
         where: { id, AND: [ownedProductWhere(user)] },
       });
+      await this.imageService.deleteQueuedFiles();
+      return product;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -164,6 +178,17 @@ export class ProductService {
       }
       throw e;
     }
+  }
+
+  // Shapes a loaded product for API responses: flat image list plus stock availability per variant.
+  private present<
+    T extends {
+      images: ImageLink[];
+      stockMl: number;
+      variants: { ml: number }[];
+    },
+  >(product: T) {
+    return this.withAvailability(withImageList(product));
   }
 
   private withAvailability<

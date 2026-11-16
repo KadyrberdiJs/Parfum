@@ -126,7 +126,7 @@ export function presentCart(cart: LoadedCart | null) {
       productId: variant.productId,
       productName: variant.product.name,
       shopId: variant.product.shopId,
-      imageUrl: variant.product.imageUrl,
+      imageUrl: variant.product.images[0]?.image.url ?? null,
       ml: variant.ml,
       quantity: item.quantity,
       unitPrice: variant.price.toFixed(2),

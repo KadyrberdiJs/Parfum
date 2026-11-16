@@ -3,6 +3,7 @@ import { Prisma } from '../../../generated/prisma/client';
 import { ProductService } from './product.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
+import { ImageService } from '../image/image.service';
 const user: AuthUser = { id: 1, username: 'seller', role: 'ADMIN' };
 const dto = {
   name: 'Perfume',
@@ -23,6 +24,7 @@ describe('ProductService permissions and invariants', () => {
     },
     $transaction: jest.fn(),
   };
+  const imageService = { deleteQueuedFiles: jest.fn() };
   let service: ProductService;
   beforeEach(() => {
     jest.resetAllMocks();
@@ -30,7 +32,10 @@ describe('ProductService permissions and invariants', () => {
     db.$transaction.mockImplementation(
       (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     );
-    service = new ProductService(db as unknown as PrismaService);
+    service = new ProductService(
+      db as unknown as PrismaService,
+      imageService as unknown as ImageService,
+    );
   });
   it('waits for ownership lookup and rejects a different shop', async () => {
     db.shop.findFirst.mockResolvedValue(null);
@@ -41,6 +46,7 @@ describe('ProductService permissions and invariants', () => {
   });
   it('creates nested variants after checking the owner', async () => {
     db.shop.findFirst.mockResolvedValue({ id: 2 });
+    db.product.create.mockResolvedValue({ variants: [], images: [] });
     await service.create(dto, user);
     expect(db.shop.findFirst).toHaveBeenCalledWith({
       where: { id: 2, ownerId: 1 },
@@ -58,6 +64,7 @@ describe('ProductService permissions and invariants', () => {
   });
   it('records initial stock in the same nested creation', async () => {
     db.shop.findFirst.mockResolvedValue({ id: 2 });
+    db.product.create.mockResolvedValue({ variants: [], images: [] });
     await service.create({ ...dto, stockMl: 500 }, user);
     expect(db.product.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -79,7 +86,7 @@ describe('ProductService permissions and invariants', () => {
     );
   });
   it('scopes update and deletion to the current owner', async () => {
-    db.product.update.mockResolvedValue({ variants: [{ id: 9 }] });
+    db.product.update.mockResolvedValue({ variants: [{ id: 9 }], images: [] });
     await service.update(5, { name: 'New name' }, user);
     await service.remove(5, user);
     const where = { id: 5, AND: [{ shop: { ownerId: 1 } }] };
@@ -87,6 +94,7 @@ describe('ProductService permissions and invariants', () => {
       expect.objectContaining({ where }),
     );
     expect(db.product.delete).toHaveBeenCalledWith({ where });
+    expect(imageService.deleteQueuedFiles).toHaveBeenCalled();
   });
   it('rejects removing the last variant inside a serializable transaction', async () => {
     db.product.update.mockResolvedValue({ variants: [] });
@@ -98,7 +106,7 @@ describe('ProductService permissions and invariants', () => {
     });
   });
   it('keeps variant selectors scoped by the nested relation', async () => {
-    db.product.update.mockResolvedValue({ variants: [{ id: 9 }] });
+    db.product.update.mockResolvedValue({ variants: [{ id: 9 }], images: [] });
     await service.update(
       5,
       { variants: { update: [{ id: 9, price: 22 }] } },
@@ -120,6 +128,7 @@ describe('ProductService permissions and invariants', () => {
     db.product.findUnique.mockResolvedValue({
       id: 5,
       stockMl: 40,
+      images: [],
       variants: [
         { id: 1, ml: 10 },
         { id: 2, ml: 50 },

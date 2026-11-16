@@ -25,7 +25,7 @@ function variant(
     product: {
       id: productId,
       name: 'Imagination',
-      imageUrl: null,
+      images: [],
       shopId: 1,
       isActive: true,
       stockMl,

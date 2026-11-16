@@ -1,6 +1,7 @@
 import { ProductController } from './product.controller';
 import { ProductStockService } from './product-stock.service';
 import { ProductService } from './product.service';
+import { ProductImageService } from './product-image.service';
 describe('ProductController', () => {
   it('passes the authenticated user to creation', async () => {
     const create = jest.fn();
@@ -9,6 +10,7 @@ describe('ProductController', () => {
         create,
       } as unknown as ProductService,
       {} as ProductStockService,
+      {} as ProductImageService,
     );
     const dto = {
       name: 'Perfume',

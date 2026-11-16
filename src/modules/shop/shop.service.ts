@@ -7,10 +7,14 @@ import { PaginationDto } from '../../common/pagination.dto';
 import { Status } from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 import { UpdateShopDto } from './dto/update-shop.dto';
+import { ImageService } from '../image/image.service';
 
 @Injectable()
 export class ShopService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private imageService: ImageService,
+  ) {}
 
   async create(dto: CreateShopDto, user: AuthUser) {
     return await this.prisma.shop.create({
@@ -72,9 +76,11 @@ export class ShopService {
 
   async remove(id: number, user: AuthUser) {
     try {
-      return await this.prisma.shop.delete({
+      const shop = await this.prisma.shop.delete({
         where: { id, AND: [ownedShopWhere(user)] },
       });
+      await this.imageService.deleteQueuedFiles();
+      return shop;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&

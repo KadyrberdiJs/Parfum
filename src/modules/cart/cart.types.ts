@@ -8,7 +8,11 @@ export const variantInclude = {
     select: {
       id: true,
       name: true,
-      imageUrl: true,
+      images: {
+        orderBy: { position: 'asc' },
+        take: 1,
+        select: { image: { select: { url: true } } },
+      },
       shopId: true,
       isActive: true,
       stockMl: true,

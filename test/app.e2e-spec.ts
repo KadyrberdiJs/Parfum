@@ -28,6 +28,7 @@ describe('HTTP security contracts', () => {
     },
     shop: { findFirst: jest.fn(), create: jest.fn() },
     refreshToken: { deleteMany: jest.fn() },
+    imageFileDeletion: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const access = (sub = 1, role = 'ADMIN') =>
     jwt.sign({ sub, role, type: 'access' }, { expiresIn: '15m' });
