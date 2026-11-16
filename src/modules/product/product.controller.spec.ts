@@ -1,11 +1,15 @@
 import { ProductController } from './product.controller';
+import { ProductStockService } from './product-stock.service';
 import { ProductService } from './product.service';
 describe('ProductController', () => {
   it('passes the authenticated user to creation', async () => {
     const create = jest.fn();
-    const controller = new ProductController({
-      create,
-    } as unknown as ProductService);
+    const controller = new ProductController(
+      {
+        create,
+      } as unknown as ProductService,
+      {} as ProductStockService,
+    );
     const dto = {
       name: 'Perfume',
       slug: 'perfume',

@@ -22,17 +22,13 @@ import {
 export class CreateProductVariantDto {
   @IsInt()
   @IsPositive()
+  @Max(2147483647)
   ml: number;
 
   @Max(99999999.99)
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   price: number;
-
-  @ValidateIf((_object, value: unknown) => value !== undefined)
-  @IsInt()
-  @Min(0)
-  stock?: number;
 
   @IsOptional()
   @IsString()
@@ -41,6 +37,12 @@ export class CreateProductVariantDto {
 }
 
 export class CreateProductDto {
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsInt()
+  @Min(0)
+  @Max(2147483647)
+  stockMl?: number;
+
   @IsString()
   @MinLength(2)
   @MaxLength(100)

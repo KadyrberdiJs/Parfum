@@ -1,18 +1,20 @@
 model Product {
-  id          Int              @id @default(autoincrement())
-  name        String
-  slug        String           @unique
-  description String?
-  brand       String?
-  imageUrl    String?          @map("image_url")
-  isActive    Boolean          @default(true) @map("is_active")
-  categoryId  Int              @map("category_id")
-  category    Category         @relation(fields: [categoryId], references: [id])
-  shopId      Int              @map("shop_id")
-  shop        Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  variants    ProductVariant[]
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  id             Int              @id @default(autoincrement())
+  name           String
+  slug           String           @unique
+  description    String?
+  brand          String?
+  imageUrl       String?          @map("image_url")
+  isActive       Boolean          @default(true) @map("is_active")
+  categoryId     Int              @map("category_id")
+  category       Category         @relation(fields: [categoryId], references: [id])
+  shopId         Int              @map("shop_id")
+  shop           Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  stockMl        Int              @default(0) @map("stock_ml")
+  stockMovements StockMovement[]
+  variants       ProductVariant[]
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
 
   @@map("products")
 }
@@ -21,7 +23,6 @@ model ProductVariant {
   id        Int      @id @default(autoincrement())
   ml        Int
   price     Decimal  @db.Decimal(10, 2)
-  stock     Int      @default(0)
   sku       String?  @unique
   productId Int      @map("product_id")
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -30,4 +31,36 @@ model ProductVariant {
 
   @@unique([productId, ml])
   @@map("product_variants")
+}
+
+enum StockMovementType {
+  REFILL
+  SALE
+  RETURN
+  SPILLAGE
+  CORRECTION
+}
+
+model StockMovement {
+  id        Int               @id @default(autoincrement())
+  productId Int               @map("product_id")
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  type      StockMovementType
+  deltaMl   Int               @map("delta_ml")
+  balanceMl Int               @map("balance_ml")
+  actorId   Int               @map("actor_id")
+  note      String
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  @@index([productId, id])
+  @@map("stock_movements")
+}
+
+model LegacyVariantStock {
+  variantId Int @id @map("variant_id")
+  productId Int @map("product_id")
+  ml        Int
+  stock     Int
+
+  @@map("legacy_variant_stock")
 }

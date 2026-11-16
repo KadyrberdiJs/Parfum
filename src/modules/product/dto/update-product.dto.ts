@@ -48,7 +48,7 @@ export class VariantChangesDto {
 }
 
 export class UpdateProductDto extends PartialType(
-  OmitType(CreateProductDto, ['variants', 'shopId'] as const),
+  OmitType(CreateProductDto, ['variants', 'shopId', 'stockMl'] as const),
   { skipNullProperties: false },
 ) {
   @IsOptional()

@@ -17,7 +17,7 @@ export class ProductService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreateProductDto, user: AuthUser) {
-    const { variants, ...productData } = dto;
+    const { variants, stockMl = 0, ...productData } = dto;
 
     const shop = await this.prisma.shop.findFirst({
       where: { id: dto.shopId, ...ownedShopWhere(user) },
@@ -28,6 +28,19 @@ export class ProductService {
       return await this.prisma.product.create({
         data: {
           ...productData,
+          stockMl,
+          stockMovements:
+            stockMl > 0
+              ? {
+                  create: {
+                    type: 'REFILL',
+                    deltaMl: stockMl,
+                    balanceMl: stockMl,
+                    actorId: user.id,
+                    note: 'Initial stock',
+                  },
+                }
+              : undefined,
           variants: {
             create: variants,
           },
@@ -54,22 +67,25 @@ export class ProductService {
   }
 
   async findAll(query: PaginationDto = new PaginationDto()) {
-    return await this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: { isActive: true, shop: { status: 'APPROVED' } },
       skip: query.skip,
       take: query.limit,
       include: { variants: true, category: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    return products.map((product) => this.withAvailability(product));
   }
 
-  findManaged(user: AuthUser, query: PaginationDto) {
-    return this.prisma.product.findMany({
+  async findManaged(user: AuthUser, query: PaginationDto) {
+    const products = await this.prisma.product.findMany({
+      include: { variants: true },
       where: ownedProductWhere(user),
       skip: query.skip,
       take: query.limit,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    return products.map((product) => this.withAvailability(product));
   }
 
   async findOne(id: number) {
@@ -81,7 +97,7 @@ export class ProductService {
     if (!product) {
       throw new NotFoundException(`Product with id:${id} not found!`);
     }
-    return product;
+    return this.withAvailability(product);
   }
 
   async update(id: number, dto: UpdateProductDto, user: AuthUser) {
@@ -148,6 +164,19 @@ export class ProductService {
       }
       throw e;
     }
+  }
+
+  private withAvailability<
+    T extends { stockMl: number; variants: { ml: number }[] },
+  >(product: T) {
+    return {
+      ...product,
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        available: product.stockMl >= variant.ml,
+        maxQuantity: Math.floor(product.stockMl / variant.ml),
+      })),
+    };
   }
 
   private buildVariantChanges(

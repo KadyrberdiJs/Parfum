@@ -26,6 +26,7 @@ describe('ProductService permissions and invariants', () => {
   let service: ProductService;
   beforeEach(() => {
     jest.resetAllMocks();
+    db.product.findMany.mockResolvedValue([]);
     db.$transaction.mockImplementation(
       (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     );
@@ -46,7 +47,34 @@ describe('ProductService permissions and invariants', () => {
     });
     expect(db.product.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { ...dto, variants: { create: dto.variants } },
+        data: {
+          ...dto,
+          stockMl: 0,
+          stockMovements: undefined,
+          variants: { create: dto.variants },
+        },
+      }),
+    );
+  });
+  it('records initial stock in the same nested creation', async () => {
+    db.shop.findFirst.mockResolvedValue({ id: 2 });
+    await service.create({ ...dto, stockMl: 500 }, user);
+    expect(db.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          ...dto,
+          stockMl: 500,
+          variants: { create: dto.variants },
+          stockMovements: {
+            create: {
+              type: 'REFILL',
+              deltaMl: 500,
+              balanceMl: 500,
+              actorId: 1,
+              note: 'Initial stock',
+            },
+          },
+        },
       }),
     );
   });
@@ -89,9 +117,20 @@ describe('ProductService permissions and invariants', () => {
     );
   });
   it('uses the same visibility rule for list and detail', async () => {
-    db.product.findUnique.mockResolvedValue({ id: 5 });
+    db.product.findUnique.mockResolvedValue({
+      id: 5,
+      stockMl: 40,
+      variants: [
+        { id: 1, ml: 10 },
+        { id: 2, ml: 50 },
+      ],
+    });
     await service.findAll();
-    await service.findOne(5);
+    const product = await service.findOne(5);
+    expect(product.variants).toEqual([
+      { id: 1, ml: 10, available: true, maxQuantity: 4 },
+      { id: 2, ml: 50, available: false, maxQuantity: 0 },
+    ]);
     expect(db.product.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 5, isActive: true, shop: { status: 'APPROVED' } },

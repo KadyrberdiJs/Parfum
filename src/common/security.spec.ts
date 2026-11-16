@@ -16,6 +16,8 @@ import { UpdateProductDto } from '../modules/product/dto/update-product.dto';
 import { CreateProductDto } from '../modules/product/dto/create-product.dto';
 import { UpdateUserDto } from '../modules/users/dto/update-user.dto';
 import { CreateShopDto } from '../modules/shop/dto/create-shop.dto';
+import { StockMovementDto } from '../modules/product/dto/stock-movement.dto';
+import { StockSaleDto } from '../modules/product/dto/stock-sale.dto';
 import { PaginationDto } from './pagination.dto';
 import { validateEnvironment } from './config';
 @Roles('SUPER_ADMIN')
@@ -90,6 +92,11 @@ describe('Request validation', () => {
     transform: true,
   });
   it.each([
+    [StockMovementDto, { type: 'REFILL', deltaMl: 0, note: 'test' }],
+    [StockMovementDto, { type: 'CORRECTION', deltaMl: 10, note: '   ' }],
+    [StockMovementDto, { type: 'REFILL', deltaMl: 1.5, note: 'test' }],
+    [StockSaleDto, { items: [{ variantId: 1, quantity: 0 }], note: 'test' }],
+    [UpdateProductDto, { stockMl: 100 }],
     [UpdateProductDto, { shopId: 9 }],
     [UpdateProductDto, { name: null }],
     [UpdateProductDto, { isActive: null }],

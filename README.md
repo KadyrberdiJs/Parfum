@@ -15,7 +15,7 @@ yarn prisma migrate deploy
 yarn start:dev
 ```
 
-The API defaults to http://localhost:4001. Use a disposable database for testing. Existing migrations are unchanged; no database migration is required for these application fixes.
+The API defaults to http://localhost:4001. Use a disposable database for testing. Apply the shared-stock migration before starting this version; see the inventory migration notes below.
 
 Generated Prisma code is ignored by Git, so run `yarn prisma:generate` after installing or changing the schema. Production: `yarn build` then `yarn start:prod`. Compiled entrypoint: `dist/src/main.js`.
 
@@ -70,7 +70,7 @@ The new hash and refresh-session revocation commit together. Existing access tok
 - Public product list/detail use the same visibility rules. Management lists include hidden records.
 - Products must retain at least one variant. Removing the last variant rolls the update back.
 - Category updates reject direct and indirect cycles. Category deletion still cascades through descendants; product references can prevent deletion.
-- Shop deletion still cascades through products and variants; it is now owner/admin protected.
+- Product/shop deletion is blocked when products have stock-movement history. Deactivate products or suspend shops to preserve the ledger.
 - Unique-value conflicts and related-record conflicts have controlled client responses. Transaction conflicts return 409 so clients can retry deliberately.
 - Login is limited to 10 attempts per minute per IP in one application process. Multiple replicas need a shared/edge limiter. Configure trusted proxies explicitly before relying on forwarded client IPs.
 - HTTP logging excludes request bodies, tokens and query strings.
@@ -88,3 +88,72 @@ yarn build
 Unit tests cover ownership, token rotation, password changes, category cycles, guards and DTO validation. HTTP tests boot the real app with real guards/strategies/pipes and a mocked database; they need permission to open a local port. Neither suite proves PostgreSQL transaction rollback or concurrency behavior: test those against a disposable PostgreSQL database before deployment.
 
 No microservices needed: controller receives a request, guards check identity/role, DTOs validate input, services enforce ownership/business rules, Prisma stores the result.
+
+
+## Shared perfume inventory
+
+Stock belongs to `Product.stockMl` (whole millilitres). Variants contain size and price, never separate stock. A 500 ml supply can fill any combination of 10 ml and 30 ml variants.
+
+Product creation accepts optional `stockMl` (default 0). Positive initial stock creates a `REFILL` movement atomically with the product. Product PATCH rejects `stockMl`; all subsequent changes must use stock movements so the ledger stays complete. Legacy variant `stock` fields are rejected in requests.
+
+Public product list/detail and the protected management list include these fields per variant:
+
+```json
+{ "id": 11, "ml": 30, "available": true, "maxQuantity": 16 }
+```
+
+`maxQuantity = floor(stockMl / variant.ml)` is a per-size estimate, not a reservation. Two sizes consume the same supply, so their individual maximum quantities cannot both be purchased together. Prices remain independent per variant.
+
+### Owner/admin inventory endpoints
+
+All endpoints below require an access token and `ADMIN`/`SUPER_ADMIN`. Ordinary administrators must own the product's shop.
+
+```http
+POST /products/1/stock-movements
+Content-Type: application/json
+
+{"type":"REFILL","deltaMl":500,"note":"Added a new 500 ml bottle"}
+```
+
+Movement types:
+
+| Type | Direction | Meaning |
+| --- | --- | --- |
+| `REFILL` | Positive | New perfume added |
+| `SALE` | Negative | Perfume poured/sold |
+| `RETURN` | Positive | Previously deducted stock actually restored, e.g. a cancelled unpoured sale |
+| `SPILLAGE` | Negative | Lost perfume |
+| `CORRECTION` | Positive or negative, never zero | Difference between recorded stock and a physical count |
+
+Every movement requires a nonblank note and records its signed quantity, resulting balance, actor ID and timestamp. For a physical count of 450 ml while the system shows 500, use `CORRECTION` with `deltaMl: -50`; it is a difference, not an absolute balance. A customer refund alone does not mean usable perfume returned to the supply.
+
+```http
+GET /products/1/stock-movements?page=1&limit=20
+```
+
+For a manual sale involving several sizes, let the backend calculate the total:
+
+```http
+POST /products/1/stock-sales
+Content-Type: application/json
+
+{"items":[{"variantId":11,"quantity":2},{"variantId":12,"quantity":1}],"note":"Counter sale"}
+```
+
+If variant 11 is 10 ml and variant 12 is 30 ml, this removes `(10 × 2) + (30 × 1) = 50 ml` in a single movement. Repeated variant entries are included in the total. Every variant must belong to the selected product. With only 40 ml available, the entire operation fails with 409 and no stock is removed.
+
+The balance update uses a conditional database increment/decrement and a serializable transaction with the ledger insert. Stock cannot go below zero. Concurrent serialization conflicts return 409. These are manual inventory operations, not order/payment endpoints: repeated successful POSTs record separate movements. Do not automatically repeat a request after an uncertain network outcome; check history first. Future checkout must add order-based idempotency and use one transaction across the order and all affected products. Cart, reservations, payments and automatic cancellation restoration are not implemented yet.
+
+### Inventory migration
+
+Migration `20261114000000_shared_perfume_stock` archives the old `(variant_id, product_id, ml, stock)` records in `legacy_variant_stock`, removes `ProductVariant.stock`, adds shared stock and the movement ledger, and enforces nonnegative stock in PostgreSQL. The archive has no cascading relations, so historical counts survive later product deletion.
+
+**Existing products start with `stockMl: 0`.** We cannot know whether the old counts represented separate prefilled bottles or duplicate counts of a shared bottle. Do not sum them automatically.
+
+1. Back up your database and stop the old application during the migration.
+2. Run `yarn prisma migrate deploy` and `yarn prisma:generate`.
+3. Restart the updated application.
+4. Measure the actual remaining ml for each product and record a positive `CORRECTION` from its initial zero balance, with a note such as "Opening shared-bottle physical count".
+5. Keep `legacy_variant_stock` until reconciliation is complete; it is archival data, not live inventory.
+
+The application changes do not apply migrations automatically. Inventory currently supports whole ml only. Stock history prevents hard deletion of products (and their shops); use `isActive: false` or shop suspension instead.
