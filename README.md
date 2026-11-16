@@ -157,3 +157,9 @@ Migration `20261114000000_shared_perfume_stock` archives the old `(variant_id, p
 5. Keep `legacy_variant_stock` until reconciliation is complete; it is archival data, not live inventory.
 
 The application changes do not apply migrations automatically. Inventory currently supports whole ml only. Stock history prevents hard deletion of products (and their shops); use `isActive: false` or shop suspension instead.
+
+## Guest and customer carts
+
+The cart API supports guest cookies, customer account carts, per-product shared-ml checks, Decimal totals, and an explicit guest-to-account merge after login. Adds and quantity increases fail when the combined ml exceeds stock; no stock is reserved. A failed merge preserves both carts.
+
+Apply `20261116000000_add_carts` before using the API. See [docs/cart.md](docs/cart.md) for endpoints, cookie/CORS setup, stock-conflict responses, login merging and guest-cart cleanup.

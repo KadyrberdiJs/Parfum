@@ -1,3 +1,4 @@
+import { CartModule } from './modules/cart/cart.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
@@ -22,6 +23,7 @@ import { AuthModule } from './modules/auth/auth.module';
     CategoryModule,
     ProductModule,
     AuthModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [
