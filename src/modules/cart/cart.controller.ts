@@ -20,8 +20,9 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { AddCartItemDto, SetCartQuantityDto } from './dto/cart-item.dto';
 import { CartService } from './cart.service';
-import { CartSession, type CartRequest } from './cart-session';
+import { CartSession } from './cart-session';
 import { CartRequestGuard } from './cart-request.guard';
+import type { CartRequest } from './cart.types';
 
 @Controller('cart')
 @OptionalAuth()
@@ -34,7 +35,7 @@ export class CartController {
 
   @Get()
   read(@Req() request: CartRequest) {
-    return this.carts.read(this.session.identity(request));
+    return this.carts.read(this.session.getCartOwner(request));
   }
 
   @Post('items')
@@ -43,8 +44,10 @@ export class CartController {
     @Res({ passthrough: true }) response: Response,
     @Body() dto: AddCartItemDto,
   ) {
-    const result = await this.carts.add(this.session.identity(request), dto);
-    this.session.save(response, result.guestToken);
+    const owner = this.session.getCartOwner(request);
+    const result = await this.carts.add(owner, dto);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 
@@ -55,12 +58,10 @@ export class CartController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SetCartQuantityDto,
   ) {
-    const result = await this.carts.setQuantity(
-      this.session.identity(request),
-      id,
-      dto.quantity,
-    );
-    this.session.save(response, result.guestToken);
+    const owner = this.session.getCartOwner(request);
+    const result = await this.carts.setQuantity(owner, id, dto.quantity);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 
@@ -70,8 +71,10 @@ export class CartController {
     @Res({ passthrough: true }) response: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const result = await this.carts.remove(this.session.identity(request), id);
-    this.session.save(response, result.guestToken);
+    const owner = this.session.getCartOwner(request);
+    const result = await this.carts.remove(owner, id);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 
@@ -80,8 +83,10 @@ export class CartController {
     @Req() request: CartRequest,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.carts.clear(this.session.identity(request));
-    this.session.save(response, result.guestToken);
+    const owner = this.session.getCartOwner(request);
+    const result = await this.carts.clear(owner);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 
@@ -93,17 +98,16 @@ export class CartController {
     @Req() request: CartRequest,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const cart = await this.carts.merge(
-      user.id,
-      this.session.guestToken(request),
-    );
-    this.session.clear(response);
+    const guestToken = this.session.readGuestToken(request);
+    const cart = await this.carts.merge(user.id, guestToken);
+    this.session.clearGuestToken(response);
     return cart;
   }
 
   @Get('guest')
   readGuest(@Req() request: CartRequest) {
-    return this.carts.read({ guestToken: this.session.guestToken(request) });
+    const guestToken = this.session.readGuestToken(request);
+    return this.carts.read({ guestToken });
   }
 
   @Patch('guest/items/:id')
@@ -113,12 +117,14 @@ export class CartController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SetCartQuantityDto,
   ) {
+    const guestToken = this.session.readGuestToken(request);
     const result = await this.carts.setQuantity(
-      { guestToken: this.session.guestToken(request) },
+      { guestToken },
       id,
       dto.quantity,
     );
-    this.session.save(response, result.guestToken);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 
@@ -128,11 +134,10 @@ export class CartController {
     @Res({ passthrough: true }) response: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const result = await this.carts.remove(
-      { guestToken: this.session.guestToken(request) },
-      id,
-    );
-    this.session.save(response, result.guestToken);
+    const guestToken = this.session.readGuestToken(request);
+    const result = await this.carts.remove({ guestToken }, id);
+    if (result.guestToken)
+      this.session.saveGuestToken(response, result.guestToken);
     return result.cart;
   }
 }

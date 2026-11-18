@@ -14,7 +14,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtStrategy } from '../auth/strategies/jwt-strategies';
 import { PrismaService } from '../prisma/prisma.service';
 import { CartRequestGuard } from './cart-request.guard';
-import { CartSession, type CartRequest } from './cart-session';
+import { CartSession } from './cart-session';
+import type { CartRequest } from './cart.types';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
 import { AddCartItemDto } from './dto/cart-item.dto';
@@ -134,7 +135,7 @@ describe('Cart authentication and browser boundaries', () => {
       clearCookie: jest.fn(),
       setHeader: jest.fn(),
     };
-    session.save(response as unknown as Response, 'a'.repeat(64));
+    session.saveGuestToken(response as unknown as Response, 'a'.repeat(64));
     expect(response.cookie).toHaveBeenCalledWith(
       '__Host-guest_cart',
       'a'.repeat(64),
@@ -146,7 +147,7 @@ describe('Cart authentication and browser boundaries', () => {
         maxAge: 2592000000,
       },
     );
-    session.clear(response as unknown as Response);
+    session.clearGuestToken(response as unknown as Response);
     expect(response.clearCookie).toHaveBeenCalledWith('__Host-guest_cart', {
       httpOnly: true,
       secure: true,
@@ -157,14 +158,14 @@ describe('Cart authentication and browser boundaries', () => {
   it('prefers authenticated identity and rejects malformed guest cookies', () => {
     const session = new CartSession(new ConfigService());
     const request = {
-      headers: { cookie: `guest_cart=${'a'.repeat(64)}` },
+      cookies: { guest_cart: 'a'.repeat(64) },
       user: { id: 1, username: 'user', role: 'CUSTOMER' as const },
-    } as Request & { user: { id: number; username: string; role: 'CUSTOMER' } };
-    expect(session.identity(request)).toEqual({ userId: 1 });
+    } as unknown as CartRequest;
+    expect(session.getCartOwner(request)).toEqual({ userId: 1 });
     expect(
-      session.guestToken({
-        headers: { cookie: 'guest_cart=guess' },
-      } as Request),
+      session.readGuestToken({
+        cookies: { guest_cart: 'guess' },
+      } as unknown as Request),
     ).toBeUndefined();
   });
   it('keeps the guest cookie when merging fails, and clears it only on success', async () => {
@@ -172,7 +173,10 @@ describe('Cart authentication and browser boundaries', () => {
     const clear = jest.fn();
     const controller = new CartController(
       { merge } as unknown as CartService,
-      { guestToken: () => 'a'.repeat(64), clear } as unknown as CartSession,
+      {
+        readGuestToken: () => 'a'.repeat(64),
+        clearGuestToken: clear,
+      } as unknown as CartSession,
     );
     const user = { id: 1, username: 'user', role: 'CUSTOMER' as const };
     await expect(

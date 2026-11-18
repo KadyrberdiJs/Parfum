@@ -10,8 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AddCartItemDto } from './dto/cart-item.dto';
 import {
   cartInclude,
-  CartIdentity,
+  CartOwner,
   GUEST_CART_LIFETIME_MS,
+  isValidGuestToken,
   LoadedCart,
   Selection,
   variantInclude,
@@ -27,27 +28,25 @@ import {
 export class CartService {
   constructor(private readonly prisma: PrismaService) {}
 
-  read(identity: CartIdentity) {
+  read(owner: CartOwner) {
     return this.transaction(async (transaction) =>
-      presentCart(await this.findCart(transaction, identity)),
+      presentCart(await this.findCart(transaction, owner)),
     );
   }
 
-  add(identity: CartIdentity, dto: AddCartItemDto) {
+  add(owner: CartOwner, dto: AddCartItemDto) {
     return this.transaction(async (transaction) => {
-      let cart = await this.findCart(transaction, identity);
+      let cart = await this.findCart(transaction, owner);
       const previous = this.selection(cart);
       const desired = combineSelections(previous, [dto]);
       checkCartLimits(desired);
       await this.checkStock(transaction, desired, previous, dto.variantId);
-      let guestToken = identity.userId ? undefined : identity.guestToken;
+      let guestToken = owner.userId ? undefined : owner.guestToken;
       if (!cart) {
-        guestToken = identity.userId
-          ? undefined
-          : randomBytes(32).toString('hex');
+        guestToken = owner.userId ? undefined : randomBytes(32).toString('hex');
         cart = await transaction.cart.create({
-          data: identity.userId
-            ? { userId: identity.userId }
+          data: owner.userId
+            ? { userId: owner.userId }
             : {
                 guestTokenHash: this.hashToken(guestToken!),
                 expiresAt: this.guestExpiry(),
@@ -70,9 +69,9 @@ export class CartService {
     });
   }
 
-  setQuantity(identity: CartIdentity, itemId: number, quantity: number) {
+  setQuantity(owner: CartOwner, itemId: number, quantity: number) {
     return this.transaction(async (transaction) => {
-      const cart = await this.requireCart(transaction, identity);
+      const cart = await this.requireCart(transaction, owner);
       const item = cart.items.find((line) => line.id === itemId);
       if (!item) throw new NotFoundException('Cart item not found');
       const previous = this.selection(cart);
@@ -89,14 +88,14 @@ export class CartService {
       const updated = await this.touchCart(transaction, cart);
       return {
         cart: presentCart(updated),
-        guestToken: identity.userId ? undefined : identity.guestToken,
+        guestToken: owner.userId ? undefined : owner.guestToken,
       };
     });
   }
 
-  remove(identity: CartIdentity, itemId: number) {
+  remove(owner: CartOwner, itemId: number) {
     return this.transaction(async (transaction) => {
-      const cart = await this.requireCart(transaction, identity);
+      const cart = await this.requireCart(transaction, owner);
       const deleted = await transaction.cartItem.deleteMany({
         where: { id: itemId, cartId: cart.id },
       });
@@ -105,20 +104,20 @@ export class CartService {
       const updated = await this.touchCart(transaction, cart);
       return {
         cart: presentCart(updated),
-        guestToken: identity.userId ? undefined : identity.guestToken,
+        guestToken: owner.userId ? undefined : owner.guestToken,
       };
     });
   }
 
-  clear(identity: CartIdentity) {
+  clear(owner: CartOwner) {
     return this.transaction(async (transaction) => {
-      const cart = await this.findCart(transaction, identity);
+      const cart = await this.findCart(transaction, owner);
       if (!cart) return { cart: presentCart(null), guestToken: undefined };
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
       const updated = await this.touchCart(transaction, cart);
       return {
         cart: presentCart(updated),
-        guestToken: identity.userId ? undefined : identity.guestToken,
+        guestToken: owner.userId ? undefined : owner.guestToken,
       };
     });
   }
@@ -190,18 +189,18 @@ export class CartService {
 
   private findCart(
     transaction: Prisma.TransactionClient,
-    identity: CartIdentity,
+    owner: CartOwner,
   ): Promise<LoadedCart | null> {
-    if (identity.userId)
+    if (owner.userId)
       return transaction.cart.findUnique({
-        where: { userId: identity.userId },
+        where: { userId: owner.userId },
         include: cartInclude,
       });
-    if (!identity.guestToken || !/^[a-f0-9]{64}$/.test(identity.guestToken))
+    if (!owner.guestToken || !isValidGuestToken(owner.guestToken))
       return Promise.resolve(null);
     return transaction.cart.findUnique({
       where: {
-        guestTokenHash: this.hashToken(identity.guestToken),
+        guestTokenHash: this.hashToken(owner.guestToken),
         AND: { userId: null },
         expiresAt: { gt: new Date() },
       },
@@ -211,9 +210,9 @@ export class CartService {
 
   private async requireCart(
     transaction: Prisma.TransactionClient,
-    identity: CartIdentity,
+    owner: CartOwner,
   ) {
-    const cart = await this.findCart(transaction, identity);
+    const cart = await this.findCart(transaction, owner);
     if (!cart) throw new NotFoundException('Cart not found or expired');
     return cart;
   }

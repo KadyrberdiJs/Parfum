@@ -1,48 +1,51 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Request, Response } from 'express';
-import type { AuthUser } from '../../common/decorators/current-user.decorator';
-import { CartIdentity, GUEST_CART_LIFETIME_MS } from './cart.types';
-export type CartRequest = Request & { user?: AuthUser };
+import type { CookieOptions, Request, Response } from 'express';
+import {
+  CartOwner,
+  CartRequest,
+  GUEST_CART_LIFETIME_MS,
+  isValidGuestToken,
+} from './cart.types';
+
 @Injectable()
 export class CartSession {
-  constructor(private readonly config: ConfigService) {}
-  guestToken(request: Request): string | undefined {
-    const cookie = request.headers.cookie
-      ?.split(';')
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${this.cookieName()}=`));
-    const token = cookie?.slice(this.cookieName().length + 1);
-    return token && /^[a-f0-9]{64}$/.test(token) ? token : undefined;
-  }
-  identity(request: CartRequest): CartIdentity {
-    return request.user
-      ? { userId: request.user.id }
-      : { guestToken: this.guestToken(request) };
-  }
-  save(response: Response, token?: string) {
-    response.setHeader('Cache-Control', 'no-store');
-    if (token)
-      response.cookie(this.cookieName(), token, {
-        ...this.cookieOptions(),
-        maxAge: GUEST_CART_LIFETIME_MS,
-      });
-  }
-  clear(response: Response) {
-    response.setHeader('Cache-Control', 'no-store');
-    response.clearCookie(this.cookieName(), this.cookieOptions());
-  }
-  private cookieName() {
-    return this.config.get('NODE_ENV') === 'production'
-      ? '__Host-guest_cart'
-      : 'guest_cart';
-  }
-  private cookieOptions() {
-    return {
+  private readonly cookieName: string;
+  private readonly cookieOptions: CookieOptions;
+
+  constructor(config: ConfigService) {
+    const isProduction = config.get('NODE_ENV') === 'production';
+    // Browsers reject __Host- cookies without HTTPS, so only use the prefix in production.
+    this.cookieName = isProduction ? '__Host-guest_cart' : 'guest_cart';
+    this.cookieOptions = {
       httpOnly: true,
-      secure: this.config.get('NODE_ENV') === 'production',
-      sameSite: 'lax' as const,
+      secure: isProduction,
+      sameSite: 'lax',
       path: '/',
     };
+  }
+
+  getCartOwner(request: CartRequest): CartOwner {
+    if (request.user) return { userId: request.user.id };
+    return { guestToken: this.readGuestToken(request) };
+  }
+
+  readGuestToken(request: Request): string | undefined {
+    const token: unknown = request.cookies?.[this.cookieName];
+    if (typeof token !== 'string') return undefined;
+    if (!isValidGuestToken(token)) return undefined;
+    return token;
+  }
+
+  // Sent on every change so the cookie's 30 days restart together with the cart's expiresAt.
+  saveGuestToken(response: Response, guestToken: string) {
+    response.cookie(this.cookieName, guestToken, {
+      ...this.cookieOptions,
+      maxAge: GUEST_CART_LIFETIME_MS,
+    });
+  }
+
+  clearGuestToken(response: Response) {
+    response.clearCookie(this.cookieName, this.cookieOptions);
   }
 }
