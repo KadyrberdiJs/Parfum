@@ -18,6 +18,7 @@ import { MAX_UPLOAD_SIZE_BYTES } from '../image/image.service';
 import { ProductStockService } from './product-stock.service';
 import { StockMovementDto } from './dto/stock-movement.dto';
 import { StockSaleDto } from './dto/stock-sale.dto';
+import { ReorderImagesDto } from './dto/reorder-images.dto';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -29,6 +30,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaginationDto } from '../../common/pagination.dto';
 import { UserRole } from '../../../generated/prisma/enums';
+import 'multer';
+
 @Controller('products')
 export class ProductController {
   constructor(
@@ -50,6 +53,16 @@ export class ProductController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.productImageService.addImages(id, files, user);
+  }
+
+  @Patch(':id/images/order')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  reorderImages(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReorderImagesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productImageService.reorderImages(id, dto.imageIds, user);
   }
 
   @Delete(':id/images/:imageId')

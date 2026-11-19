@@ -22,6 +22,7 @@ model User {
   // FK
   cart          Cart?
   shop          Shop?
+  orders        Order[]
   refreshTokens RefreshToken[]
 
   @@map("users")
@@ -35,5 +36,6 @@ model RefreshToken {
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([expiresAt])
   @@map("refresh_tokens")
 }

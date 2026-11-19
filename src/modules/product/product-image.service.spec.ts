@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImageService } from '../image/image.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -14,7 +15,12 @@ const storedFile = {
 describe('ProductImageService', () => {
   const db = {
     product: { findFirst: jest.fn(), update: jest.fn() },
-    productImage: { findMany: jest.fn(), deleteMany: jest.fn() },
+    productImage: {
+      findMany: jest.fn(),
+      deleteMany: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
   const imageService = {
     storeOptimized: jest.fn(),
@@ -25,6 +31,9 @@ describe('ProductImageService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     db.productImage.findMany.mockResolvedValue([]);
+    db.$transaction.mockImplementation(
+      (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+    );
     imageService.storeOptimized.mockResolvedValue([storedFile]);
     service = new ProductImageService(
       db as unknown as PrismaService,
@@ -32,11 +41,17 @@ describe('ProductImageService', () => {
     );
   });
 
-  it('appends uploads after the last image of an owned product', async () => {
+  it('appends uploads after the last image inside a serializable transaction', async () => {
     db.product.findFirst.mockResolvedValue({
-      images: [{ position: 0 }, { position: 4 }],
+      images: [
+        { imageId: 10, position: 0 },
+        { imageId: 11, position: 4 },
+      ],
     });
     await service.addImages(5, [file as Express.Multer.File], user);
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
     expect(db.product.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 5, AND: [{ shop: { ownerId: 1 } }] },
@@ -60,12 +75,36 @@ describe('ProductImageService', () => {
 
   it('rejects uploads that would exceed the gallery limit', async () => {
     db.product.findFirst.mockResolvedValue({
-      images: Array.from({ length: 20 }, (_, position) => ({ position })),
+      images: Array.from({ length: 20 }, (_, position) => ({
+        imageId: position + 1,
+        position,
+      })),
     });
     await expect(
       service.addImages(5, [file as Express.Multer.File], user),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(imageService.storeOptimized).not.toHaveBeenCalled();
+  });
+
+  it('discards optimized files when a concurrent upload fills the gallery', async () => {
+    db.product.findFirst
+      .mockResolvedValueOnce({
+        images: Array.from({ length: 19 }, (_, position) => ({
+          imageId: position + 1,
+          position,
+        })),
+      })
+      .mockResolvedValueOnce({
+        images: Array.from({ length: 20 }, (_, position) => ({
+          imageId: position + 1,
+          position,
+        })),
+      });
+    await expect(
+      service.addImages(5, [file as Express.Multer.File], user),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(imageService.discard).toHaveBeenCalledWith([storedFile]);
+    expect(db.product.update).not.toHaveBeenCalled();
   });
 
   it('removes stored files when linking them fails', async () => {
@@ -77,8 +116,44 @@ describe('ProductImageService', () => {
     expect(imageService.discard).toHaveBeenCalledWith([storedFile]);
   });
 
+  it('reorders product images when every gallery image is listed once', async () => {
+    db.product.findFirst.mockResolvedValue({
+      images: [
+        { imageId: 10, position: 0 },
+        { imageId: 20, position: 1 },
+      ],
+    });
+    await service.reorderImages(5, [20, 10], user);
+    expect(db.productImage.update).toHaveBeenNthCalledWith(1, {
+      where: { productId_imageId: { productId: 5, imageId: 20 } },
+      data: { position: 0 },
+    });
+    expect(db.productImage.update).toHaveBeenNthCalledWith(2, {
+      where: { productId_imageId: { productId: 5, imageId: 10 } },
+      data: { position: 1 },
+    });
+  });
+
+  it('rejects reordering when an image is missing or foreign', async () => {
+    db.product.findFirst.mockResolvedValue({
+      images: [
+        { imageId: 10, position: 0 },
+        { imageId: 20, position: 1 },
+      ],
+    });
+    await expect(service.reorderImages(5, [10], user)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(
+      service.reorderImages(5, [10, 99], user),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.productImage.update).not.toHaveBeenCalled();
+  });
+
   it('unlinks an image and removes its queued file', async () => {
-    db.product.findFirst.mockResolvedValue({ images: [{ position: 0 }] });
+    db.product.findFirst.mockResolvedValue({
+      images: [{ imageId: 7, position: 0 }],
+    });
     db.productImage.deleteMany.mockResolvedValue({ count: 1 });
     await service.removeImage(5, 7, user);
     expect(db.productImage.deleteMany).toHaveBeenCalledWith({

@@ -25,11 +25,12 @@ function variant(
     product: {
       id: productId,
       name: 'Imagination',
+      brand: 'Louis Vuitton',
       images: [],
       shopId: 1,
       isActive: true,
       stockMl,
-      shop: { status: 'APPROVED' },
+      shop: { name: 'Aroma', status: 'APPROVED' },
     },
   };
 }

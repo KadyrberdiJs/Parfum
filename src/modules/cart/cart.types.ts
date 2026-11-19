@@ -19,6 +19,7 @@ export const variantInclude = {
     select: {
       id: true,
       name: true,
+      brand: true,
       images: {
         orderBy: { position: 'asc' },
         take: 1,
@@ -27,7 +28,7 @@ export const variantInclude = {
       shopId: true,
       isActive: true,
       stockMl: true,
-      shop: { select: { status: true } },
+      shop: { select: { name: true, status: true } },
     },
   },
 } satisfies Prisma.ProductVariantInclude;

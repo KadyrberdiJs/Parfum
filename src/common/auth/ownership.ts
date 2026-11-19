@@ -12,3 +12,8 @@ export function ownedShopWhere(user: AuthUser): Prisma.ShopWhereInput {
   if (user.role === UserRole.SUPER_ADMIN) return {};
   return { ownerId: user.id };
 }
+
+export function ownedOrderWhere(user: AuthUser): Prisma.OrderWhereInput {
+  if (user.role === UserRole.SUPER_ADMIN) return {};
+  return { shop: { ownerId: user.id } };
+}

@@ -53,7 +53,7 @@ export class ProductService {
         },
         include: { variants: true, images: orderedImages },
       });
-      return withImageList(product);
+      return this.present(product);
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -133,7 +133,7 @@ export class ProductService {
             throw new BadRequestException(
               'A product must have at least one variant',
             );
-          return withImageList(product);
+          return this.present(product);
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -163,12 +163,22 @@ export class ProductService {
   }
 
   async remove(id: number, user: AuthUser) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, AND: [ownedProductWhere(user)] },
+      select: { _count: { select: { stockMovements: true } } },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with id:${id} not found!`);
+    }
+    if (product._count.stockMovements > 0) {
+      return this.archive(id, user);
+    }
     try {
-      const product = await this.prisma.product.delete({
+      const deleted = await this.prisma.product.delete({
         where: { id, AND: [ownedProductWhere(user)] },
       });
       await this.imageService.deleteQueuedFiles();
-      return product;
+      return deleted;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -178,6 +188,15 @@ export class ProductService {
       }
       throw e;
     }
+  }
+
+  private async archive(id: number, user: AuthUser) {
+    const product = await this.prisma.product.update({
+      where: { id, AND: [ownedProductWhere(user)] },
+      data: { isActive: false },
+      include: { variants: true, images: orderedImages },
+    });
+    return this.present(product);
   }
 
   // Shapes a loaded product for API responses: flat image list plus stock availability per variant.

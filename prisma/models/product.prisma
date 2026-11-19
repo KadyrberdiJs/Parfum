@@ -11,6 +11,7 @@ model Product {
   shop           Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
   stockMl        Int              @default(0) @map("stock_ml")
   stockMovements StockMovement[]
+  orderItems     OrderItem[]
   images         ProductImage[]
   variants       ProductVariant[]
   createdAt      DateTime         @default(now()) @map("created_at")
@@ -20,8 +21,9 @@ model Product {
 }
 
 model ProductVariant {
-  cartItems CartItem[]
-  id        Int        @id @default(autoincrement())
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  id         Int         @id @default(autoincrement())
   ml        Int
   price     Decimal    @db.Decimal(10, 2)
   sku       String?    @unique
@@ -49,7 +51,7 @@ model StockMovement {
   type      StockMovementType
   deltaMl   Int               @map("delta_ml")
   balanceMl Int               @map("balance_ml")
-  actorId   Int               @map("actor_id")
+  actorId   Int?              @map("actor_id")
   note      String
   createdAt DateTime          @default(now()) @map("created_at")
 

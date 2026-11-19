@@ -8,5 +8,6 @@ import { CartRequestGuard } from './cart-request.guard';
   imports: [PrismaModule],
   controllers: [CartController],
   providers: [CartService, CartSession, CartRequestGuard],
+  exports: [CartSession, CartRequestGuard],
 })
 export class CartModule {}

@@ -75,12 +75,28 @@ export class ShopService {
   }
 
   async remove(id: number, user: AuthUser) {
+    const shop = await this.prisma.shop.findFirst({
+      where: { id, AND: [ownedShopWhere(user)] },
+      select: {
+        products: {
+          where: { stockMovements: { some: {} } },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!shop) {
+      throw new NotFoundException(`Shop with id:${id} not found!`);
+    }
+    if (shop.products.length > 0) {
+      return this.suspend(id, user);
+    }
     try {
-      const shop = await this.prisma.shop.delete({
+      const deleted = await this.prisma.shop.delete({
         where: { id, AND: [ownedShopWhere(user)] },
       });
       await this.imageService.deleteQueuedFiles();
-      return shop;
+      return deleted;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -90,5 +106,12 @@ export class ShopService {
       }
       throw e;
     }
+  }
+
+  private suspend(id: number, user: AuthUser) {
+    return this.prisma.shop.update({
+      where: { id, AND: [ownedShopWhere(user)] },
+      data: { status: Status.SUSPENDED },
+    });
   }
 }

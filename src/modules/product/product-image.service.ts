@@ -11,6 +11,8 @@ import { MAX_IMAGES_PER_OWNER, publicImageFields } from '../image/image-links';
 import { ownedProductWhere } from '../../common/auth/ownership';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 
+type GalleryClient = Pick<Prisma.TransactionClient, 'product' | 'productImage'>;
+
 export const orderedImages = {
   orderBy: { position: 'asc' },
   select: { image: { select: publicImageFields } },
@@ -32,17 +34,33 @@ export class ProductImageService {
     if (files.length === 0) {
       throw new BadRequestException('Attach at least one image');
     }
-    const gallery = await this.findOwnedGallery(productId, user);
-    if (gallery.length + files.length > MAX_IMAGES_PER_OWNER) {
-      throw new BadRequestException(
-        `A product can have at most ${MAX_IMAGES_PER_OWNER} images`,
-      );
-    }
+    const initialGallery = await this.findOwnedGallery(
+      this.prisma,
+      productId,
+      user,
+    );
+    this.ensureRoomFor(initialGallery.length, files.length);
 
     const storedFiles = await this.imageService.storeOptimized(files);
-    const nextPosition = (gallery.at(-1)?.position ?? -1) + 1;
     try {
-      await this.linkImages(productId, storedFiles, nextPosition);
+      await this.prisma.$transaction(
+        async (transaction) => {
+          const gallery = await this.findOwnedGallery(
+            transaction,
+            productId,
+            user,
+          );
+          this.ensureRoomFor(gallery.length, files.length);
+          const nextPosition = (gallery.at(-1)?.position ?? -1) + 1;
+          await this.linkImages(
+            transaction,
+            productId,
+            storedFiles,
+            nextPosition,
+          );
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
     } catch (error) {
       await this.imageService.discard(storedFiles);
       throw error;
@@ -50,9 +68,33 @@ export class ProductImageService {
     return this.listImages(productId);
   }
 
+  async reorderImages(productId: number, imageIds: number[], user: AuthUser) {
+    await this.prisma.$transaction(
+      async (transaction) => {
+        const gallery = await this.findOwnedGallery(
+          transaction,
+          productId,
+          user,
+        );
+        this.ensureSameImages(
+          gallery.map((link) => link.imageId),
+          imageIds,
+        );
+        for (const [position, imageId] of imageIds.entries()) {
+          await transaction.productImage.update({
+            where: { productId_imageId: { productId, imageId } },
+            data: { position },
+          });
+        }
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return this.listImages(productId);
+  }
+
   // Removes one image from the product's gallery; the database then deletes the unused image and queues its file.
   async removeImage(productId: number, imageId: number, user: AuthUser) {
-    await this.findOwnedGallery(productId, user);
+    await this.findOwnedGallery(this.prisma, productId, user);
     const { count } = await this.prisma.productImage.deleteMany({
       where: { productId, imageId },
     });
@@ -65,11 +107,38 @@ export class ProductImageService {
     return this.listImages(productId);
   }
 
-  private async findOwnedGallery(productId: number, user: AuthUser) {
-    const product = await this.prisma.product.findFirst({
+  private ensureRoomFor(currentCount: number, addedCount: number) {
+    if (currentCount + addedCount > MAX_IMAGES_PER_OWNER) {
+      throw new BadRequestException(
+        `A product can have at most ${MAX_IMAGES_PER_OWNER} images`,
+      );
+    }
+  }
+
+  private ensureSameImages(currentIds: number[], requestedIds: number[]) {
+    const currentSet = new Set(currentIds);
+    const hasSameMembers =
+      currentIds.length === requestedIds.length &&
+      requestedIds.every((id) => currentSet.has(id));
+    if (!hasSameMembers) {
+      throw new BadRequestException(
+        'imageIds must include every image of the product exactly once',
+      );
+    }
+  }
+
+  private async findOwnedGallery(
+    client: GalleryClient,
+    productId: number,
+    user: AuthUser,
+  ) {
+    const product = await client.product.findFirst({
       where: { id: productId, AND: [ownedProductWhere(user)] },
       select: {
-        images: { orderBy: { position: 'asc' }, select: { position: true } },
+        images: {
+          orderBy: { position: 'asc' },
+          select: { imageId: true, position: true },
+        },
       },
     });
     if (!product) {
@@ -79,11 +148,12 @@ export class ProductImageService {
   }
 
   private async linkImages(
+    client: GalleryClient,
     productId: number,
     storedFiles: StoredFile[],
     firstPosition: number,
   ) {
-    await this.prisma.product.update({
+    await client.product.update({
       where: { id: productId },
       data: {
         images: {

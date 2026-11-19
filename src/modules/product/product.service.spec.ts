@@ -19,6 +19,7 @@ describe('ProductService permissions and invariants', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
@@ -44,10 +45,17 @@ describe('ProductService permissions and invariants', () => {
     );
     expect(db.product.create).not.toHaveBeenCalled();
   });
-  it('creates nested variants after checking the owner', async () => {
+  it('creates nested variants after checking the owner and presents availability', async () => {
     db.shop.findFirst.mockResolvedValue({ id: 2 });
-    db.product.create.mockResolvedValue({ variants: [], images: [] });
-    await service.create(dto, user);
+    db.product.create.mockResolvedValue({
+      stockMl: 100,
+      variants: [{ id: 1, ml: 50 }],
+      images: [],
+    });
+    const created = await service.create(dto, user);
+    expect(created.variants).toEqual([
+      { id: 1, ml: 50, available: true, maxQuantity: 2 },
+    ]);
     expect(db.shop.findFirst).toHaveBeenCalledWith({
       where: { id: 2, ownerId: 1 },
     });
@@ -64,7 +72,11 @@ describe('ProductService permissions and invariants', () => {
   });
   it('records initial stock in the same nested creation', async () => {
     db.shop.findFirst.mockResolvedValue({ id: 2 });
-    db.product.create.mockResolvedValue({ variants: [], images: [] });
+    db.product.create.mockResolvedValue({
+      stockMl: 500,
+      variants: [],
+      images: [],
+    });
     await service.create({ ...dto, stockMl: 500 }, user);
     expect(db.product.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -86,8 +98,18 @@ describe('ProductService permissions and invariants', () => {
     );
   });
   it('scopes update and deletion to the current owner', async () => {
-    db.product.update.mockResolvedValue({ variants: [{ id: 9 }], images: [] });
-    await service.update(5, { name: 'New name' }, user);
+    db.product.update.mockResolvedValue({
+      stockMl: 50,
+      variants: [{ id: 9, ml: 25 }],
+      images: [],
+    });
+    db.product.findFirst.mockResolvedValue({
+      _count: { stockMovements: 0 },
+    });
+    const updated = await service.update(5, { name: 'New name' }, user);
+    expect(updated.variants).toEqual([
+      { id: 9, ml: 25, available: true, maxQuantity: 2 },
+    ]);
     await service.remove(5, user);
     const where = { id: 5, AND: [{ shop: { ownerId: 1 } }] };
     expect(db.product.update).toHaveBeenCalledWith(
@@ -96,8 +118,33 @@ describe('ProductService permissions and invariants', () => {
     expect(db.product.delete).toHaveBeenCalledWith({ where });
     expect(imageService.deleteQueuedFiles).toHaveBeenCalled();
   });
+  it('archives a product instead of deleting when stock history exists', async () => {
+    db.product.findFirst.mockResolvedValue({
+      _count: { stockMovements: 2 },
+    });
+    db.product.update.mockResolvedValue({
+      id: 5,
+      isActive: false,
+      stockMl: 100,
+      variants: [{ id: 9, ml: 50 }],
+      images: [],
+    });
+    const result = await service.remove(5, user);
+    expect(db.product.delete).not.toHaveBeenCalled();
+    expect(db.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 5, AND: [{ shop: { ownerId: 1 } }] },
+        data: { isActive: false },
+      }),
+    );
+    expect(result).toMatchObject({
+      id: 5,
+      isActive: false,
+      variants: [{ id: 9, ml: 50, available: true, maxQuantity: 2 }],
+    });
+  });
   it('rejects removing the last variant inside a serializable transaction', async () => {
-    db.product.update.mockResolvedValue({ variants: [] });
+    db.product.update.mockResolvedValue({ stockMl: 0, variants: [] });
     await expect(
       service.update(5, { variants: { delete: [9] } }, user),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -106,7 +153,11 @@ describe('ProductService permissions and invariants', () => {
     });
   });
   it('keeps variant selectors scoped by the nested relation', async () => {
-    db.product.update.mockResolvedValue({ variants: [{ id: 9 }], images: [] });
+    db.product.update.mockResolvedValue({
+      stockMl: 0,
+      variants: [{ id: 9, ml: 10 }],
+      images: [],
+    });
     await service.update(
       5,
       { variants: { update: [{ id: 9, price: 22 }] } },

@@ -1,8 +1,10 @@
 import { CartModule } from './modules/cart/cart.module';
+import { OrderModule } from './modules/order/order.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { validateEnvironment } from './common/config';
+import { ExpiredDataCleanup } from './common/expired-data.cleanup';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -24,10 +26,12 @@ import { AuthModule } from './modules/auth/auth.module';
     ProductModule,
     AuthModule,
     CartModule,
+    OrderModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    ExpiredDataCleanup,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
