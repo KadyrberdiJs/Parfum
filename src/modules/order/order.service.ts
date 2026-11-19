@@ -22,7 +22,9 @@ import {
 import { stockConflicts } from '../cart/cart-stock';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { createShopOrders, presentOrder } from './order-snapshot';
+import { MIN_DELIVERY_FEE_TMT } from './dto/update-delivery-fee.dto';
+import { groupItemsByShop, presentOrder } from './helper';
+import { buildItemSnapshot } from './order-snapshot';
 import { deductCartStock, returnOrderStock } from './order-stock';
 import { LoadedOrder, orderInclude } from './order.types';
 
@@ -36,7 +38,7 @@ export class OrderService {
       const cart = await this.requireNonEmptyCart(transaction, owner);
       this.ensureCartAvailable(cart);
       await deductCartStock(transaction, cart, owner.userId);
-      const orders = await createShopOrders(
+      const orders = await this.createShopOrders(
         transaction,
         cart,
         owner.userId,
@@ -189,6 +191,54 @@ export class OrderService {
         conflicts,
       });
     }
+  }
+
+  // Generates an Order record for each shop represented in the cart.
+  private async createShopOrders(
+    transaction: Prisma.TransactionClient,
+    cart: LoadedCart,
+    userId: number | undefined,
+    dto: CreateOrderDto,
+  ): Promise<LoadedOrder[]> {
+    const itemsByShop = groupItemsByShop(cart.items);
+    const defaultDeliveryFee =
+      dto.fulfillmentType === FulfillmentType.DELIVERY
+        ? new Prisma.Decimal(MIN_DELIVERY_FEE_TMT)
+        : new Prisma.Decimal(0);
+    const address =
+      dto.fulfillmentType === FulfillmentType.DELIVERY
+        ? dto.address!
+        : (dto.address ?? null);
+
+    const createdOrders: LoadedOrder[] = [];
+    for (const [shopId, items] of itemsByShop) {
+      const shopName = items[0].variant.product.shop.name;
+      const snapshotItems = items.map((item) => buildItemSnapshot(item));
+      const itemsTotal = snapshotItems.reduce(
+        (sum, item) => sum.plus(item.lineTotal),
+        new Prisma.Decimal(0),
+      );
+
+      const order = await transaction.order.create({
+        data: {
+          shopId,
+          shopName,
+          userId: userId ?? null,
+          fullName: dto.fullName,
+          phone: dto.phone,
+          address,
+          note: dto.note ?? null,
+          fulfillmentType: dto.fulfillmentType,
+          itemsTotal,
+          deliveryFee: defaultDeliveryFee,
+          total: itemsTotal.plus(defaultDeliveryFee),
+          items: { create: snapshotItems },
+        },
+        include: orderInclude,
+      });
+      createdOrders.push(order);
+    }
+    return createdOrders;
   }
 
   // Loads an order for management, throwing 404 if the seller does not own its shop.
