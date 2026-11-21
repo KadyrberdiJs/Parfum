@@ -8,8 +8,8 @@ import { ProductImageService } from './product-image.service';
 const user: AuthUser = { id: 1, username: 'seller', role: 'ADMIN' };
 const file = { originalname: 'a.png', buffer: Buffer.from('') };
 const storedFile = {
-  storageKey: 'images/a.avif',
-  url: '/uploads/images/a.avif',
+  storageKey: 'images/a.png',
+  url: '/uploads/images/a.png',
 };
 
 describe('ProductImageService', () => {
@@ -23,7 +23,8 @@ describe('ProductImageService', () => {
     $transaction: jest.fn(),
   };
   const imageService = {
-    storeOptimized: jest.fn(),
+    storeUploads: jest.fn(),
+    enqueueOptimization: jest.fn(),
     discard: jest.fn(),
     deleteQueuedFiles: jest.fn(),
   };
@@ -31,17 +32,20 @@ describe('ProductImageService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     db.productImage.findMany.mockResolvedValue([]);
+    db.product.update.mockResolvedValue({
+      images: [{ imageId: 12, image: { storageKey: storedFile.storageKey } }],
+    });
     db.$transaction.mockImplementation(
       (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     );
-    imageService.storeOptimized.mockResolvedValue([storedFile]);
+    imageService.storeUploads.mockResolvedValue([storedFile]);
     service = new ProductImageService(
       db as unknown as PrismaService,
       imageService as unknown as ImageService,
     );
   });
 
-  it('appends uploads after the last image inside a serializable transaction', async () => {
+  it('appends uploads after the last image inside a serializable transaction and enqueues optimization', async () => {
     db.product.findFirst.mockResolvedValue({
       images: [
         { imageId: 10, position: 0 },
@@ -57,12 +61,17 @@ describe('ProductImageService', () => {
         where: { id: 5, AND: [{ shop: { ownerId: 1 } }] },
       }),
     );
-    expect(db.product.update).toHaveBeenCalledWith({
-      where: { id: 5 },
-      data: {
-        images: { create: [{ position: 5, image: { create: storedFile } }] },
-      },
-    });
+    expect(db.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 5 },
+        data: {
+          images: { create: [{ position: 5, image: { create: storedFile } }] },
+        },
+      }),
+    );
+    expect(imageService.enqueueOptimization).toHaveBeenCalledWith([
+      { imageId: 12, storageKey: storedFile.storageKey },
+    ]);
   });
 
   it('rejects uploads for products the user does not own', async () => {
@@ -70,7 +79,8 @@ describe('ProductImageService', () => {
     await expect(
       service.addImages(5, [file as Express.Multer.File], user),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(imageService.storeOptimized).not.toHaveBeenCalled();
+    expect(imageService.storeUploads).not.toHaveBeenCalled();
+    expect(imageService.enqueueOptimization).not.toHaveBeenCalled();
   });
 
   it('rejects uploads that would exceed the gallery limit', async () => {
@@ -83,10 +93,11 @@ describe('ProductImageService', () => {
     await expect(
       service.addImages(5, [file as Express.Multer.File], user),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(imageService.storeOptimized).not.toHaveBeenCalled();
+    expect(imageService.storeUploads).not.toHaveBeenCalled();
+    expect(imageService.enqueueOptimization).not.toHaveBeenCalled();
   });
 
-  it('discards optimized files when a concurrent upload fills the gallery', async () => {
+  it('discards uploaded files when a concurrent upload fills the gallery', async () => {
     db.product.findFirst
       .mockResolvedValueOnce({
         images: Array.from({ length: 19 }, (_, position) => ({
@@ -104,6 +115,7 @@ describe('ProductImageService', () => {
       service.addImages(5, [file as Express.Multer.File], user),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(imageService.discard).toHaveBeenCalledWith([storedFile]);
+    expect(imageService.enqueueOptimization).not.toHaveBeenCalled();
     expect(db.product.update).not.toHaveBeenCalled();
   });
 
@@ -114,6 +126,7 @@ describe('ProductImageService', () => {
       service.addImages(5, [file as Express.Multer.File], user),
     ).rejects.toThrow('database down');
     expect(imageService.discard).toHaveBeenCalledWith([storedFile]);
+    expect(imageService.enqueueOptimization).not.toHaveBeenCalled();
   });
 
   it('reorders product images when every gallery image is listed once', async () => {

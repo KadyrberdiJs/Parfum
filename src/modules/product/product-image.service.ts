@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ImageService } from '../image/image.service';
+import { ImageService, OptimizeImageJobData } from '../image/image.service';
 import { StoredFile } from '../image/image-storage';
 import { MAX_IMAGES_PER_OWNER, publicImageFields } from '../image/image-links';
 import { ownedProductWhere } from '../../common/auth/ownership';
@@ -25,7 +25,7 @@ export class ProductImageService {
     private imageService: ImageService,
   ) {}
 
-  // Optimizes the uploaded files and appends them to the end of the product's gallery.
+  // Stores the uploaded files, links them to the gallery and queues background optimization.
   async addImages(
     productId: number,
     files: Express.Multer.File[],
@@ -41,9 +41,10 @@ export class ProductImageService {
     );
     this.ensureRoomFor(initialGallery.length, files.length);
 
-    const storedFiles = await this.imageService.storeOptimized(files);
+    const storedFiles = await this.imageService.storeUploads(files);
+    let createdImages: OptimizeImageJobData[];
     try {
-      await this.prisma.$transaction(
+      createdImages = await this.prisma.$transaction(
         async (transaction) => {
           const gallery = await this.findOwnedGallery(
             transaction,
@@ -52,7 +53,7 @@ export class ProductImageService {
           );
           this.ensureRoomFor(gallery.length, files.length);
           const nextPosition = (gallery.at(-1)?.position ?? -1) + 1;
-          await this.linkImages(
+          return this.linkImages(
             transaction,
             productId,
             storedFiles,
@@ -65,6 +66,7 @@ export class ProductImageService {
       await this.imageService.discard(storedFiles);
       throw error;
     }
+    await this.imageService.enqueueOptimization(createdImages);
     return this.listImages(productId);
   }
 
@@ -152,8 +154,9 @@ export class ProductImageService {
     productId: number,
     storedFiles: StoredFile[],
     firstPosition: number,
-  ) {
-    await client.product.update({
+  ): Promise<OptimizeImageJobData[]> {
+    const storageKeys = storedFiles.map((file) => file.storageKey);
+    const updatedProduct = await client.product.update({
       where: { id: productId },
       data: {
         images: {
@@ -163,7 +166,25 @@ export class ProductImageService {
           })),
         },
       },
+      select: {
+        images: {
+          where: { image: { storageKey: { in: storageKeys } } },
+          select: {
+            imageId: true,
+            image: { select: { storageKey: true } },
+          },
+        },
+      },
     });
+    return updatedProduct.images
+      .filter(
+        (link): link is typeof link & { image: { storageKey: string } } =>
+          typeof link.image.storageKey === 'string',
+      )
+      .map((link) => ({
+        imageId: link.imageId,
+        storageKey: link.image.storageKey,
+      }));
   }
 
   private async listImages(productId: number) {

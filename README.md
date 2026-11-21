@@ -7,7 +7,7 @@ NestJS + Prisma + PostgreSQL catalog with users, shops, categories, product vari
 ```sh
 yarn install --frozen-lockfile
 cp .env.example .env
-# Edit DATABASE_URL and generate a random JWT_SECRET:
+# Edit DATABASE_URL, REDIS_URL (for BullMQ image optimization) and generate a random JWT_SECRET:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # Set JWT_SECRET to the generated value.
 yarn prisma:generate

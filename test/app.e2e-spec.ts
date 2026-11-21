@@ -1,3 +1,4 @@
+import { BullRegistrar, getQueueToken } from '@nestjs/bullmq';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -5,6 +6,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { createHash } from 'crypto';
 import { AppModule } from '../src/app.module';
+import { IMAGE_OPTIMIZATION_QUEUE } from '../src/modules/image/image.service';
 import { PrismaService } from '../src/modules/prisma/prisma.service';
 import { setupApp } from '../src/setup-app';
 
@@ -36,6 +38,10 @@ describe('HTTP security contracts', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue(db)
+      .overrideProvider(BullRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(getQueueToken(IMAGE_OPTIMIZATION_QUEUE))
+      .useValue({ addBulk: jest.fn(), close: jest.fn() })
       .compile();
     app = module.createNestApplication();
     setupApp(app);

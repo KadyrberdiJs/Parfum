@@ -1,9 +1,11 @@
+import { BullRegistrar, getQueueToken } from '@nestjs/bullmq';
 import { Test } from '@nestjs/testing';
 import { ConflictException, INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { IMAGE_OPTIMIZATION_QUEUE } from '../src/modules/image/image.service';
 import { PrismaService } from '../src/modules/prisma/prisma.service';
 import { CartService } from '../src/modules/cart/cart.service';
 import { setupApp } from '../src/setup-app';
@@ -44,6 +46,10 @@ describe('Cart HTTP contracts', () => {
       })
       .overrideProvider(CartService)
       .useValue(carts)
+      .overrideProvider(BullRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(getQueueToken(IMAGE_OPTIMIZATION_QUEUE))
+      .useValue({ addBulk: jest.fn(), close: jest.fn() })
       .compile();
     app = module.createNestApplication();
     setupApp(app);

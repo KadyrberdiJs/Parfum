@@ -19,7 +19,7 @@ import { CreateShopDto } from '../modules/shop/dto/create-shop.dto';
 import { StockMovementDto } from '../modules/product/dto/stock-movement.dto';
 import { StockSaleDto } from '../modules/product/dto/stock-sale.dto';
 import { PaginationDto } from './pagination.dto';
-import { validateEnvironment } from './config';
+import { buildRedisConnection, validateEnvironment } from './config';
 @Roles('SUPER_ADMIN')
 class RestrictedController {}
 @Public()
@@ -135,7 +135,7 @@ describe('Request validation', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
-  it('validates the single JWT secret', () => {
+  it('validates the single JWT secret and optional Redis URL', () => {
     expect(() => validateEnvironment({})).toThrow('DATABASE_URL');
     expect(() =>
       validateEnvironment({
@@ -147,7 +147,25 @@ describe('Request validation', () => {
       validateEnvironment({
         DATABASE_URL: 'postgresql://localhost/test',
         JWT_SECRET: 'x'.repeat(32),
+        REDIS_URL: 'http://localhost:6379',
+      }),
+    ).toThrow('Redis URL');
+    expect(() =>
+      validateEnvironment({
+        DATABASE_URL: 'postgresql://localhost/test',
+        JWT_SECRET: 'x'.repeat(32),
+        REDIS_URL: 'redis://localhost:6379/2',
       }),
     ).not.toThrow();
+    expect(
+      buildRedisConnection('rediss://user:pass@redis.local:6380/2'),
+    ).toEqual({
+      host: 'redis.local',
+      port: 6380,
+      username: 'user',
+      password: 'pass',
+      db: 2,
+      tls: {},
+    });
   });
 });

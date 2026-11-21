@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { mkdir, unlink, writeFile } from 'fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 
 export const UPLOADS_DIRECTORY = join(process.cwd(), 'uploads');
@@ -17,6 +17,15 @@ export class ImageStorage {
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, content);
     return { storageKey, url: `${UPLOADS_URL_PREFIX}/${storageKey}` };
+  }
+
+  async read(storageKey: string): Promise<Buffer | null> {
+    try {
+      return await readFile(join(UPLOADS_DIRECTORY, storageKey));
+    } catch (error) {
+      if (isMissingFileError(error)) return null;
+      throw error;
+    }
   }
 
   // Removes a stored file; a file that is already gone counts as removed.
